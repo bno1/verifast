@@ -216,7 +216,7 @@ and
   | Var of loc * string
   | WVar of loc * string * ident_scope
   | TruncatingExpr of loc * expr
-  | Operation of (* voor operaties met bovenstaande operators*)
+  | Operation of (* for operations with the above operators *)
       loc *
       operator *
       expr list
@@ -267,7 +267,7 @@ and
       loc *
       expr *
       type_ (* pointee type *)
-  | CallExpr of (* oproep van functie/methode/lemma/fixpoint *)
+  | CallExpr of (* call of functie/methode/lemma/fixpoint *)
       loc *
       string *
       type_expr list (* type arguments *) *
@@ -375,28 +375,28 @@ and
       loc *
       asn *
       asn
-  | IfAsn of (* if-predicate in de vorm expr? p1:p2 regel-expr-p1-p2 *)
+  | IfAsn of (* if-predicate in the form expr? p1:p2 regel-expr-p1-p2 *)
       loc *
       expr *
       asn *
       asn
-  | SwitchAsn of (* switch over cons van inductive type regel-expr-clauses*)
+  | SwitchAsn of (* switch over cons of inductive type rule-expr-clauses *)
       loc *
       expr *
       switch_asn_clause list
-  | WSwitchAsn of (* switch over cons van inductive type regel-expr-clauses*)
+  | WSwitchAsn of (* switch over cons of inductive type rule-expr-clauses *)
       loc *
       expr *
       string * (* inductive type (fully qualified) *)
       wswitch_asn_clause list
-  | EmpAsn of  (* als "emp" bij requires/ensures staat -regel-*)
+  | EmpAsn of  (* when "emp" in requires/ensures state rule *)
       loc
   | ForallAsn of 
       loc *
       type_expr *
       string *
       expr
-  | CoefAsn of (* fractional permission met coeff-predicate*)
+  | CoefAsn of (* fractional permission with coef-predicate *)
       loc *
       pat *
       asn
@@ -408,8 +408,8 @@ and
 and
   pat = (* ?pat *)
     LitPat of expr (* literal pattern *)
-  | VarPat of loc * string (* var pattern, aangeduid met ? in code *)
-  | DummyPat (*dummy pattern, aangeduid met _ in code *)
+  | VarPat of loc * string (* var pattern, indicated by ? in code *)
+  | DummyPat (* dummy pattern, indicated by _ in code *)
   | CtorPat of loc * string * pat list
   | WCtorPat of loc * string * type_ list * string * type_ list * type_ list * pat list
 and
@@ -474,21 +474,21 @@ and
       loc *
       bool (* allowed *) *
       stmt
-  | DeclStmt of (* enkel declaratie *)
+  | DeclStmt of (* single declaration *)
       loc *
       (loc * type_expr * string * expr option * (bool ref (* indicates whether address is taken *) * string list ref option ref (* pointer to enclosing block's list of variables whose address is taken *))) list
   | ExprStmt of expr
-  | IfStmt of (* if  regel-conditie-branch1-branch2  *)
+  | IfStmt of (* if rule-condition-branch1-branch2 *)
       loc *
       expr *
       stmt list *
       stmt list
-  | SwitchStmt of (* switch over inductief type regel-expr- constructor)*)
+  | SwitchStmt of (* switch over inductive type rule-expr-constructor *)
       loc *
       expr *
       switch_stmt_clause list
-  | Assert of loc * asn (* assert regel-predicate *)
-  | Leak of loc * asn (* expliciet lekken van assertie, nuttig op einde van thread*)
+  | Assert of loc * asn (* assert rule-predicate *)
+  | Leak of loc * asn (* explicit leakage of assertion, useful at the end of thread *)
   | Open of
       loc *
       expr option *  (* Target object *)
