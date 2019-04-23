@@ -28,7 +28,7 @@ let ghost_keywords = [
   "produce_lemma_function_pointer_chunk"; "duplicate_lemma_function_pointer_chunk"; "produce_function_pointer_chunk";
   "producing_box_predicate"; "producing_handle_predicate"; "producing_fresh_handle_predicate"; "box"; "handle"; "any"; "split_fraction"; "by"; "merge_fractions";
   "unloadable_module"; "decreases"; "forall_"; "import_module"; "require_module"; ".."; "extends"; "permbased";
-  "terminates"; "abstract_type"
+  "terminates"; "abstract_type"; "secrets"
 ]
 
 let c_keywords = [
@@ -100,6 +100,7 @@ let peek_in_ghost_range p stream =
 type spec_clause = (* ?spec_clause *)
   NonghostCallersOnlyClause
 | FuncTypeClause of string * type_expr list * (loc * string) list
+| SecretsClause of string list
 | RequiresClause of asn
 | EnsuresClause of asn
 | TerminatesClause of loc
@@ -895,6 +896,10 @@ and
 | [< '(_, Kwd ":"); '(li, Ident ft); targs = parse_type_args li; ftargs = parse_functypeclause_args >] -> FuncTypeClause (ft, targs, ftargs)
 | [< '(_, Kwd "requires"); p = parse_asn; '(_, Kwd ";") >] -> RequiresClause p
 | [< '(_, Kwd "ensures"); p = parse_asn; '(_, Kwd ";") >] -> EnsuresClause p
+| [< '(_, Kwd "secrets"); p = rep_comma parse_secrets; '(_, Kwd ";") >] -> SecretsClause p
+and
+  parse_secrets = parser
+  [< '(_, Ident x) >] -> x
 and
   parse_spec_clause = parser
   [< c = peek_in_ghost_range (parser [< c = parse_pure_spec_clause; '(_, Kwd "@*/") >] -> c) >] -> c
@@ -906,6 +911,7 @@ and
     let clause_stream = Stream.from (fun _ -> try let clause = Some (parse_spec_clause token_stream) in in_count := !in_count + 1; clause with Stream.Failure -> None) in
     let nonghost_callers_only = (parser [< 'NonghostCallersOnlyClause >] -> out_count := !out_count + 1; true | [< >] -> false) clause_stream in
     let ft = (parser [< 'FuncTypeClause (ft, fttargs, ftargs) >] -> out_count := !out_count + 1; Some (ft, fttargs, ftargs) | [< >] -> None) clause_stream in
+    let secrets = (parser [< 'SecretsClause secs >] -> out_count := !out_count + 1; Some (secs) | [< >] -> None) clause_stream in
     let pre_post = (parser [< 'RequiresClause pre; 'EnsuresClause post; >] -> out_count := !out_count + 2; Some (pre, post) | [< >] -> None) clause_stream in
     let terminates = (parser [< '(TerminatesClause l) >] -> out_count := !out_count + 1; true | [< >] -> false) clause_stream in
     if !in_count > !out_count then raise (Stream.Error "The number, kind, or order of specification clauses is incorrect. Expected: nonghost_callers_only clause (optional), function type clause (optional), contract (optional), terminates clause (optional).");
