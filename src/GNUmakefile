@@ -213,7 +213,7 @@ endif
 
 # Always include debug information. This seems necessary to prevent vfide crashes on OS X (see https://dnetcode.cs.kuleuven.be/issues/1975).
 # Also, this is necessary to get stack traces.
-OCAMLCFLAGS += -g -w p
+OCAMLCFLAGS += -g -w p+29
 ifeq ($(OS), Linux)
   # See https://github.com/verifast/verifast/issues/145
   OCAMLCFLAGS += -runtime-variant _pic
@@ -317,7 +317,7 @@ clean::
 
 %.cmx: %.ml $(INCLUDE_OS_DIR)/Perf.cmxa
 	@echo "  OCAMLOPT " $@
-	${OCAMLOPT} $(OCAMLCFLAGS) -thread -c -w p -warn-error FSU -c $(INCLUDES) -pp ${CAMLP4O} $(NUM_FLAGS) $*.ml
+	${OCAMLOPT} $(OCAMLCFLAGS) -thread -c -warn-error FSU -c $(INCLUDES) -pp ${CAMLP4O} $(NUM_FLAGS) $*.ml
 clean::
 	rm -f *.cmx
 	rm -f *.o
@@ -422,7 +422,7 @@ vfide.cmx: branchleft_png.cmx branchright_png.cmx vfide.ml $(GTKSOURCEVIEW_DEPS)
 ifndef WITHOUT_GTKSOURCEVIEW
 	make -C linemarks OCAMLOPT=${OCAMLOPT} OCAMLCFLAGS="${OCAMLCFLAGS}" LABLGTK_FLAGS="$(LABLGTK_FLAGS_)" linemarks.cmxa
 endif
-	$(SET_LDD); $(OCAMLOPT) $(OCAMLCFLAGS) -thread -c -w p -warn-error FSU -c $(INCLUDES) \
+	$(SET_LDD); $(OCAMLOPT) $(OCAMLCFLAGS) -thread -c -warn-error FSU -c $(INCLUDES) \
 	-pp ${CAMLP4O} $(NUM_FLAGS) $(LABLGTK_FLAGS) $(GTKSOURCEVIEW_LFLAGS) vfide.ml
 
 VERIFAST_PLUGINS=Redux Cvc4 ExternalZ3 ReduxSmtlib
