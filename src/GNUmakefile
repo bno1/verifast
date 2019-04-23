@@ -159,15 +159,17 @@ clean::
 	mkdir -p ../lib/gdk-pixbuf-2.0/2.10.0
 	echo > ../lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
 
-../bin/libz3.dll:
-	cp $(Z3_DLL_DIR)/libz3.dll $(Z3_DLL_DEPS_DIR)/libwinpthread-1.dll $(Z3_DLL_DEPS_DIR)/libgomp-1.dll $(Z3_DLL_DEPS_DIR)/libgcc_s_sjlj-1.dll ../bin
+../bin/libz3.dll: $(Z3_DLL_DIR)/libz3.dll $(Z3_DLL_DEPS_DIR)/libwinpthread-1.dll $(Z3_DLL_DEPS_DIR)/libgomp-1.dll $(Z3_DLL_DEPS_DIR)/libgcc_s_sjlj-1.dll
+	mkdir -p $(shell dirname "$@")
+	cp $^ $(shell dirname "$@")
 
-../bin/libz3.so:
-	cp $(Z3_DLL_DIR)/libz3.so ../bin
+../bin/libz3.so: $(Z3_DLL_DIR)/libz3.so
+	mkdir -p $(shell dirname "$@")
+	cp "$<" "$@"
 
-../lib/libz3.dylib:
-	mkdir -p ../lib
-	cp $(Z3_DLL_DIR)/libz3.dylib ../lib
+../lib/libz3.dylib: $(Z3_DLL_DIR)/libz3.dylib
+	mkdir -p $(shell dirname "$@")
+	cp "$<" "$@"
 
 # Should Make print each commandline? Then use "make VERBOSE=yes".
 ifndef VERBOSE
