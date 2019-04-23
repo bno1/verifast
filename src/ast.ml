@@ -619,7 +619,7 @@ and
       type_expr option * 
       string * 
       (type_expr * string) list * 
-      (asn * asn * ((type_expr * asn) list) * bool (*terminates*) ) option * 
+      (string list * asn * asn * ((type_expr * asn) list) * bool (*terminates*) ) option * 
       ((stmt list * loc (* Close brace *)) * int (*rank*)) option * 
       method_binding * 
       visibility *
@@ -629,7 +629,7 @@ and
   | Cons of
       loc * 
       (type_expr * string) list * 
-      (asn * asn * ((type_expr * asn) list) * bool (*terminates*) ) option * 
+      (string list * asn * asn * ((type_expr * asn) list) * bool (*terminates*) ) option * 
       ((stmt list * loc (* Close brace *)) * int (*rank*)) option * 
       visibility
 and
@@ -697,6 +697,7 @@ and
       (type_expr * string) list *  (* parameters *)
       bool (* nonghost_callers_only *) *
       (string * type_expr list * (loc * string) list) option (* implemented function type, with function type type arguments and function type arguments *) *
+      string list * (* secrets *)
       (asn * asn) option *  (* contract *)
       bool *  (* terminates *)
       (stmt list * loc (* Close brace *)) option *  (* body *)
@@ -720,7 +721,7 @@ and
       string list * (* type parameters *)
       (type_expr * string) list *
       (type_expr * string) list *
-      (asn * asn * bool) (* precondition, postcondition, terminates *)
+      (string list * asn * asn * bool) (* precondition, postcondition, terminates *)
   | BoxClassDecl of
       loc *
       string *

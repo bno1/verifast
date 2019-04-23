@@ -152,8 +152,16 @@ module Scala = struct
     | [< >] -> []
   and
     parse_contract = parser
-      [< '(_, Kwd "/*@"); '(_, Kwd "requires"); pre = parse_asn; '(_, Kwd "@*/");
-         '(_, Kwd "/*@"); '(_, Kwd "ensures"); post = parse_asn; '(_, Kwd "@*/") >] -> (pre, post, [], false)
+      [< secrs = parse_secrets_clause;
+         '(_, Kwd "/*@"); '(_, Kwd "requires"); pre = parse_asn; '(_, Kwd "@*/");
+         '(_, Kwd "/*@"); '(_, Kwd "ensures"); post = parse_asn; '(_, Kwd "@*/") >] -> (secrs, pre, post, [], false)
+  and
+    parse_secrets_clause = parser
+      [< '(_, Kwd "/*@"); '(_, Kwd "secrets"); secrs = rep_comma parse_secrets; '(_, Kwd "@*/") >] -> secrs
+    | [< >] -> []
+  and
+    parse_secrets = parser
+      [< '(_, Ident x) >] -> x
   and
     parse_asn = parser
       [< '(_, Kwd "("); a = parse_asn; '(_, Kwd ")") >] -> a
@@ -406,20 +414,20 @@ and
     let contract =
       let epost = match epost with None -> [] | Some(epost) -> epost in
       match co with
-      | Some(pre, post, terminates) -> 
+      | Some(secrs, pre, post, terminates) -> 
         let epost = List.map (fun (tp, e) -> 
           (tp, match e with 
             None -> raise (ParseException (l, "If you give a method a contract, you must also give ensures clauses for the thrown expceptions.")) | 
             Some(e) -> e)) epost 
         in
-        Some(pre, post, epost, terminates)
+        Some(secrs, pre, post, epost, terminates)
       | None -> 
         if enforce_annotations then None else
         begin
          let pre = ExprAsn(l, False(l)) in
          let post = ExprAsn(l, True(l)) in
          let epost = List.map (fun (tp, e) -> (tp, match e with None -> ExprAsn(l, True(l)) | Some(e) -> e)) epost in
-         Some (pre, post, epost, false)
+         Some ([], pre, post, epost, false)
         end
     in
     (ps, contract, ss)
@@ -474,7 +482,7 @@ and
          '(_, Kwd ";");
          spec = opt parse_spec
        >] ->
-         let contract = check_for_contract spec l "Function type declaration should have contract." (fun (pre, post) -> (pre, post, false)) in
+         let contract = check_for_contract spec l "Function type declaration should have contract." (fun (pre, post) -> ([], pre, post, false)) in
          [FuncTypeDecl (l, Real, rt, g, tparams, ftps, ps, contract)]
        | [< '(_, Kwd ";") >] ->
          begin
@@ -501,7 +509,7 @@ and
 | [< '(_, Kwd "_Noreturn"); _ = parse_ignore_inline; t = parse_return_type; d = parse_func_rest Regular t Public >] ->
   let ds = check_function_for_contract d in
   begin match ds with
-    [Func (l, k, tparams, t, g, ps, gc, ft, Some (pre, post), terminates, ss, static, v)] ->
+    [Func (l, k, tparams, t, g, ps, gc, ft, secrs, Some (pre, post), terminates, ss, static, v)] ->
     begin match pre, post with
       ExprAsn (_, False _), _ | False _, _ | _, False _ -> ()
     | _ -> raise (ParseException (l, "Function marked 'noreturn' must declare 'ensures false'."))
@@ -521,9 +529,9 @@ and check_for_contract: 'a. 'a option -> loc -> string -> (asn * asn -> 'a) -> '
 
 and check_function_for_contract d =
   match d with
-  | Func(l, k, tparams, t, g, ps, gc, ft, contract, terminates, ss, static, v) ->
+  | Func(l, k, tparams, t, g, ps, gc, ft, secrs, contract, terminates, ss, static, v) ->
     let contract = check_for_contract contract l "Function declaration should have a contract." (fun co -> co) in
-    [Func(l, k, tparams, t, g, ps, gc, ft, Some contract, terminates, ss, static, v)]
+    [Func(l, k, tparams, t, g, ps, gc, ft, secrs, Some contract, terminates, ss, static, v)]
   | _ -> [d]
 and
   parse_pure_decls = parser
@@ -576,8 +584,8 @@ and
        '(_, Kwd "{"); '(_, Kwd "invariant"); inv = parse_asn; '(_, Kwd ";");
        ads = parse_action_decls; hpds = parse_handle_pred_decls; '(_, Kwd "}") >] -> [BoxClassDecl (l, bcn, ps, inv, ads, hpds)]
   | [< '(l, Kwd "typedef"); '(_, Kwd "lemma"); rt = parse_return_type; '(li, Ident g); tps = parse_type_params li;
-       (ftps, ps) = parse_functype_paramlists; '(_, Kwd ";"); (pre, post, terminates) = parse_spec >] ->
-    [FuncTypeDecl (l, Ghost, rt, g, tps, ftps, ps, (pre, post, terminates))]
+       (ftps, ps) = parse_functype_paramlists; '(_, Kwd ";"); (secrs, pre, post, terminates) = parse_spec >] ->
+    [FuncTypeDecl (l, Ghost, rt, g, tps, ftps, ps, (secrs, pre, post, terminates))]
   | [< '(l, Kwd "unloadable_module"); '(_, Kwd ";") >] -> [UnloadableModuleDecl l]
   | [< '(l, Kwd "import_module"); '(_, Ident g); '(lx, Kwd ";") >] -> [ImportModuleDecl (l, g)]
   | [< '(l, Kwd "require_module"); '(_, Ident g); '(lx, Kwd ";") >] -> [RequireModuleDecl (l, g)]
@@ -688,10 +696,10 @@ and
       [<
         ps = parse_paramlist;
         f = parser
-          [< '(_, Kwd ";"); (nonghost_callers_only, ft, co, terminates) = parse_spec_clauses >] ->
-          Func (l, k, tparams, t, g, ps, nonghost_callers_only, ft, co, terminates, None, Static, v)
-        | [< (nonghost_callers_only, ft, co, terminates) = parse_spec_clauses; '(_, Kwd "{"); ss = parse_stmts; '(closeBraceLoc, Kwd "}") >] ->
-          Func (l, k, tparams, t, g, ps, nonghost_callers_only, ft, co, terminates, Some (ss, closeBraceLoc), Static, v)
+          [< '(_, Kwd ";"); (nonghost_callers_only, ft, secs, co, terminates) = parse_spec_clauses >] ->
+          Func (l, k, tparams, t, g, ps, nonghost_callers_only, ft, secs, co, terminates, None, Static, v)
+        | [< (nonghost_callers_only, ft, secs, co, terminates) = parse_spec_clauses; '(_, Kwd "{"); ss = parse_stmts; '(closeBraceLoc, Kwd "}") >] ->
+          Func (l, k, tparams, t, g, ps, nonghost_callers_only, ft, secs, co, terminates, Some (ss, closeBraceLoc), Static, v)
       >] -> f
     | [<
         () = (fun s -> if k = Regular && tparams = [] && t <> None then () else raise Stream.Failure);
@@ -911,18 +919,18 @@ and
     let clause_stream = Stream.from (fun _ -> try let clause = Some (parse_spec_clause token_stream) in in_count := !in_count + 1; clause with Stream.Failure -> None) in
     let nonghost_callers_only = (parser [< 'NonghostCallersOnlyClause >] -> out_count := !out_count + 1; true | [< >] -> false) clause_stream in
     let ft = (parser [< 'FuncTypeClause (ft, fttargs, ftargs) >] -> out_count := !out_count + 1; Some (ft, fttargs, ftargs) | [< >] -> None) clause_stream in
-    let secrets = (parser [< 'SecretsClause secs >] -> out_count := !out_count + 1; Some (secs) | [< >] -> None) clause_stream in
+    let secrets = (parser [< 'SecretsClause secs >] -> out_count := !out_count + 1; secs | [< >] -> []) clause_stream in
     let pre_post = (parser [< 'RequiresClause pre; 'EnsuresClause post; >] -> out_count := !out_count + 2; Some (pre, post) | [< >] -> None) clause_stream in
     let terminates = (parser [< '(TerminatesClause l) >] -> out_count := !out_count + 1; true | [< >] -> false) clause_stream in
-    if !in_count > !out_count then raise (Stream.Error "The number, kind, or order of specification clauses is incorrect. Expected: nonghost_callers_only clause (optional), function type clause (optional), contract (optional), terminates clause (optional).");
-    (nonghost_callers_only, ft, pre_post, terminates)
+    if !in_count > !out_count then raise (Stream.Error "The number, kind, or order of specification clauses is incorrect. Expected: nonghost_callers_only clause (optional), function type clause (optional), secrets (optional), contract (optional), terminates clause (optional).");
+    (nonghost_callers_only, ft, secrets, pre_post, terminates)
 and
   parse_spec = parser
-    [< (nonghost_callers_only, ft, pre_post, terminates) = parse_spec_clauses >] ->
+    [< (nonghost_callers_only, ft, secrets, pre_post, terminates) = parse_spec_clauses >] ->
     match (nonghost_callers_only, ft, pre_post) with
       (false, None, None) -> raise Stream.Failure
-    | (false, None, (Some (pre, post))) -> (pre, post, terminates)
-    | _ -> raise (Stream.Error "Incorrect kind, number, or order of specification clauses. Expected: requires clause, ensures clause, terminates clause (optional).")
+    | (false, None, (Some (pre, post))) -> (secrets, pre, post, terminates)
+    | _ -> raise (Stream.Error "Incorrect kind, number, or order of specification clauses. Expected: secrets clause (optional), requires clause, ensures clause, terminates clause (optional).")
 and
   parse_block = parser
   [< '(l, Kwd "{"); ss = parse_stmts; '(_, Kwd "}") >] -> ss

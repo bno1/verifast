@@ -413,7 +413,7 @@ and sexpr_of_prover_type (t : prover_type) : sexpression =
   | ProverBool       -> Symbol "prover-type-bool"
   | ProverReal       -> Symbol "prover-type-real"
   | ProverInductive  -> Symbol "prover-type-inductive"
-               
+
 let rec sexpr_of_pred (asn : asn) : sexpression =
   match asn with
     | IfAsn (loc, expr, thenp, elsep) ->
@@ -603,6 +603,7 @@ and sexpr_of_decl (decl : decl) : sexpression =
             params,
             atom,
             impl,
+            secrets,
             contract,
             terminates,
             body,
@@ -616,6 +617,9 @@ and sexpr_of_decl (decl : decl) : sexpression =
           | None           -> [ ]
           | Some (body, _) -> [ "body", List (List.map sexpr_of_stmt body) ]
       in
+      let secrets_expr =
+        ("secrets", sexpr_of_list symbol secrets)
+      in
       let contract =
         match contract with
           | None -> []
@@ -627,7 +631,7 @@ and sexpr_of_decl (decl : decl) : sexpression =
                              ; "return-type", sexpr_of_type_expr_option rtype
                              ; "parameters", List (List.map sexpr_of_arg params) ]
                            ; body
-                           ; contract ]
+                           ; secrets_expr::contract ]
       in
         build_list [ Symbol "declare-function"; Symbol name ] kw
     | PredFamilyDecl (loc,
@@ -709,6 +713,8 @@ and sexpr_of_inductive_constructor (c : ctor) : sexpression =
                [ "arguments", List (List.map aux args)]
 
 and sexpr_of_meths (meth : meth) : sexpression =
+  let symbol s = Symbol s
+  in
   match meth with
   | Meth (loc, ghost, rtype, name, params, contract, body, bind, vis, abs) ->
     let sexpr_of_arg (t, id) =
@@ -722,8 +728,9 @@ and sexpr_of_meths (meth : meth) : sexpression =
     let contract =
       match contract with
         | None -> []
-        | Some (pre, post,_,_) -> [ "precondition", sexpr_of_pred pre
-                                ; "postcondition", sexpr_of_pred post ] 
+        | Some (secrs, pre, post,_,_) -> [ "secrets", sexpr_of_list symbol secrs
+                                         ; "precondition", sexpr_of_pred pre
+                                         ; "postcondition", sexpr_of_pred post ]
     in        
     let kw = List.concat [ [ "ghos", sexpr_of_ghostness ghost
                             ; "return-type", sexpr_of_type_expr_option rtype
@@ -734,6 +741,8 @@ and sexpr_of_meths (meth : meth) : sexpression =
       build_list [ Symbol "declare-method"; Symbol name ] kw
 
 and sexpr_of_constructor (name : string) (cons : cons) : sexpression =
+  let symbol s = Symbol s
+  in
   match cons with
   | Cons (loc, params, contract, body, vis) ->
     let sexpr_of_arg (t, id) =
@@ -747,8 +756,9 @@ and sexpr_of_constructor (name : string) (cons : cons) : sexpression =
     let contract =
       match contract with
         | None -> []
-        | Some (pre, post, _, _) -> [ "precondition", sexpr_of_pred pre
-                                    ; "postcondition", sexpr_of_pred post ] 
+        | Some (secrs, pre, post, _, _) -> [ "secrets", sexpr_of_list symbol secrs
+                                           ; "precondition", sexpr_of_pred pre
+                                           ; "postcondition", sexpr_of_pred post ]
     in        
     let kw = List.concat [ [ "parameters", List (List.map sexpr_of_arg params) ]
                           ; body

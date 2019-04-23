@@ -448,7 +448,7 @@ and check_contract l anns throws generate =
     else
       anns
   in
-  let (pre', post', terminates') = parse_contract l' anns' false in
+  let (secr', pre', post', terminates') = parse_contract l' anns' false in
   let throws' = 
     List.map 
       (fun (t, c) -> 
@@ -466,7 +466,7 @@ and check_contract l anns throws generate =
       )      
     throws
   in
-  Some(pre', post', throws', terminates')
+  Some(secr', pre', post', throws', terminates')
 
 and translate_methods cn decls = 
   debug_print "translate_methods";
