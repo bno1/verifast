@@ -58,10 +58,10 @@ let _ =
       print_endline ("0 errors found (" ^ (string_of_int (stats#getStmtExec)) ^ " statements verified)");
       Java_frontend_bridge.unload();
     with
-      PreprocessorDivergence (l, msg) -> print_msg (Lexed l) msg; exit 1
-    | ParseException (l, msg) -> print_msg l ("Parse error" ^ (if msg = "" then "." else ": " ^ msg)); exit 1
-    | CompilationError(msg) -> print_endline (msg); exit 1
-    | StaticError (l, msg, url) -> print_msg l msg; exit 1
+      PreprocessorDivergence (l, msg) -> Printexc.print_backtrace stdout; print_msg (Lexed l) msg; exit 1
+    | ParseException (l, msg) -> Printexc.print_backtrace stdout; print_msg l ("Parse error" ^ (if msg = "" then "." else ": " ^ msg)); exit 1
+    | CompilationError(msg) -> Printexc.print_backtrace stdout; print_endline (msg); exit 1
+    | StaticError (l, msg, url) -> Printexc.print_backtrace stdout; print_msg l msg; exit 1
     | SymbolicExecutionError (ctxts, l, msg, url) ->
         (*
         let _ = print_endline "Trace:" in
@@ -70,7 +70,7 @@ let _ =
         let _ = print_endline ("Env: " ^ string_of_env env) in
         *)
         let _ = print_msg l msg in
-        exit 1
+        Printexc.print_backtrace stdout; exit 1
     in
     if emitHighlightedSourceFiles then
     begin
