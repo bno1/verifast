@@ -1724,7 +1724,7 @@ module VerifyProgram1(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       begin
         match zip ts ts0 with
           Some tpairs when List.for_all (fun (t, t0) -> unify t t0) tpairs && (inputParamCount0 = None || inputParamCount = inputParamCount0) -> ()
-        | _ -> static_error l (msg ^ "Type mismatch. Actual: " ^ string_of_type t ^ ". Expected: " ^ string_of_type t0 ^ ".") None
+        | _ -> static_error l (msg ^ "Type mismatch in PredType. Actual: " ^ string_of_type t ^ ". Expected: " ^ string_of_type t0 ^ ".") None
       end
     | (PureFuncType (t1, t2), PureFuncType (t10, t20)) -> expect_type_core l msg inAnnotation t10 t1; expect_type_core l msg inAnnotation t2 t20
     | (InductiveType _, AnyType) -> ()
@@ -5196,7 +5196,7 @@ let check_if_list_is_defined () =
     end
   
   let rec eval_core_cps0 eval_core ev state ass_term read_field env e cont =
-     let evs state es cont =
+    let evs state es cont =
       let rec iter state vs es =
         match es with
           [] -> cont state (List.rev vs)
