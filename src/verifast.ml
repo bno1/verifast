@@ -43,7 +43,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         None -> consume_asn rules [] h [] hpInvEnv inv true real_unit (fun _ h _ _ _ -> cont h)
       | Some(ehname) -> assert_handle_invs bcn hpmap ehname hpInvEnv h (fun h ->  consume_asn rules [] h [] hpInvEnv inv true real_unit (fun _ h _ _ _ -> cont h))
   
-  let rec verify_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env s tcont return_cont econt =
+  let rec verify_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets s tcont return_cont econt =
     let l = stmt_loc s in
     if not (is_transparent_stmt s) then begin !stats#stmtExec l; reportStmtExec l end;
     let break_label () = if pure then "#ghostBreak" else "#break" in
@@ -245,7 +245,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
                 in
                 verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure
                   leminfo_branch funcmap predinstmap sizemap tenv ghostenv h
-                  env ss_before tcont return_cont econt
+                  env secrets ss_before tcont return_cont econt
               end $. fun sizemap tenv ghostenv h env ->
               begin fun ftcheck_cont ->
               match call_opt with
@@ -297,7 +297,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
                 produce_asn [] h [] f_env post1 real_unit None None $. fun h _ _ ->
                 with_context PopSubcontext $. fun () ->
                 let tcont _ _ _ h _ = ftcheck_cont h ft_env in
-                verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss_after tcont return_cont econt
+                verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss_after tcont return_cont econt
               end $. fun h ft_env ->
               with_context (Executing (h, ft_env, closeBraceLoc, "Consuming function type postcondition")) $. fun () ->
               with_context PushSubcontext $. fun () ->
@@ -340,7 +340,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         let return_cont h tenv env retval =
           consume_chunk h (fun h -> return_cont h tenv env retval)
         in
-        verify_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env s tcont return_cont econt
+        verify_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets s tcont return_cont econt
     in
     let require_pure () =
       if not pure then static_error l "This statement may appear only in a pure context." None
@@ -348,7 +348,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     match s with
       NonpureStmt (l, allowed, s) ->
       if allowed then
-        verify_stmt (pn,ilist) blocks_done lblenv tparams boxes false leminfo funcmap predinstmap sizemap tenv ghostenv h env s tcont return_cont econt
+        verify_stmt (pn,ilist) blocks_done lblenv tparams boxes false leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets s tcont return_cont econt
       else
         static_error l "Non-pure statements are not allowed here." None
     | ExprStmt (CallExpr (l, "produce_limits", [], [], [LitPat (Var (lv, x) as e)], Static)) ->
@@ -625,8 +625,8 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       let tcont _ _ _ h env = tcont sizemap tenv ghostenv h (List.filter (fun (x, _) -> List.mem_assoc x tenv) env) in
       (eval_h_nonpure h env w ( fun h env w ->
         branch
-          (fun _ -> assume w (fun _ -> verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss1 tcont return_cont econt))
-          (fun _ -> assume (ctxt#mk_not w) (fun _ -> verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss2 tcont return_cont econt))
+          (fun _ -> assume w (fun _ -> verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss1 tcont return_cont econt))
+          (fun _ -> assume (ctxt#mk_not w) (fun _ -> verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss2 tcont return_cont econt))
       ))
     | SwitchStmt (l, e, cs) ->
       let sizemap = match e with 
@@ -697,7 +697,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               | Some(t, k) -> List.map (fun (x, tx) -> (tx, (t, k - 1))) xenv @ sizemap
             in
             branch
-              (fun _ -> assume_eq v (mk_app ctorsym xterms) (fun _ -> verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap (ptenv @ tenv) (pats @ ghostenv) h (xenv @ env) ss tcont return_cont econt))
+              (fun _ -> assume_eq v (mk_app ctorsym xterms) (fun _ -> verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap (ptenv @ tenv) (pats @ ghostenv) h (xenv @ env) secrets ss tcont return_cont econt))
               (fun _ -> iter (List.filter (function cn' -> cn' <> cn) ctors) cs)
         in
         iter (List.map (function (cn, _) -> cn) ctormap) cs
@@ -715,7 +715,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               | SwitchStmtClause (l, e, ss) -> ss
             in
             let tcont _ _ _ h env = fall_through h (List.filter (fun (x, _) -> List.mem_assoc x tenv) env) cs in
-            verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss tcont return_cont econt
+            verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss tcont return_cont econt
         in
         let rec verify_cases cs =
           match cs with
@@ -1384,7 +1384,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       let is_handle_chunks = if not is_fresh then [] else [Chunk ((get_pred_symb "is_handle", true), [], real_unit, [handleTerm], None)] in
       tcont sizemap ((x, HandleIdType)::tenv) (x::ghostenv) (Chunk ((hpn_symb, true), [], real_unit, [handleTerm; boxIdTerm], None)::is_handle_chunks@h) ((x, handleTerm)::env)
     | ReturnStmt (l, eo) ->
-      verify_return_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env true l eo [] return_cont econt
+      verify_return_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets true l eo [] return_cont econt
     | WhileStmt (l, e, None, dec, ss) ->
       static_error l "Loop invariant required." None
     | WhileStmt (l, e, Some (LoopInv p), dec, ss) ->
@@ -1433,7 +1433,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           end
       end $. fun () ->
       begin fun continue ->
-        verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv' ghostenv' h' env' ss
+        verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv' ghostenv' h' env' secrets ss
           (fun _ _ _ h'' env -> continue h'' env)
           return_cont
           econt
@@ -1539,7 +1539,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           end
       end $. fun () ->
       begin fun continue ->
-        verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv'' ghostenv' h' env' ss_before
+        verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv'' ghostenv' h' env' secrets ss_before
           (fun _ tenv''' _ h' env' -> free_locals endBodyLoc h' tenv''' env' !locals_to_free (fun h' _ -> continue h' tenv''' env'))
           return_cont
           econt
@@ -1572,7 +1572,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       List.iter (function PureStmt _ -> () | s -> static_error (stmt_loc s) "Only pure statements are allowed after the recursive call." None) ss_after;
       let ss_after_xs = block_assigned_variables ss_after in
       List.iter (fun x -> if List.mem x xs then static_error l "Statements after the recursive call are not allowed to assign to loop variables" None) ss_after_xs;
-      verify_cont (pn,ilist) blocks_done [] tparams boxes pure leminfo funcmap predinstmap sizemap tenv''' ghostenv' h' env' ss_after (fun _ tenv _ h' env' ->  check_post h' env') (fun _ _ -> assert false) (fun _ _ _ -> assert false)
+      verify_cont (pn,ilist) blocks_done [] tparams boxes pure leminfo funcmap predinstmap sizemap tenv''' ghostenv' h' env' secrets ss_after (fun _ tenv _ h' env' ->  check_post h' env') (fun _ _ -> assert false) (fun _ _ _ -> assert false)
     | Throw (l, e) ->
       if pure then static_error l "Throw statements are not allowed in a pure context." None;
       let e' = check_expr_t (pn,ilist) tparams tenv e (ObjType "java.lang.Throwable") in
@@ -1587,7 +1587,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       let tcont _ _ _ h env = tcont sizemap tenv ghostenv h (List.filter (fun (x, _) -> List.mem_assoc x tenv) env) in
       branch
         begin fun () ->
-          verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env body tcont return_cont (fun throwl h env2 texcep excep -> 
+          verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets body tcont return_cont (fun throwl h env2 texcep excep -> 
             let env = List.filter (fun (x, t) -> List.mem_assoc x env) env2 in
             let rec iter catches =
               match catches with
@@ -1600,7 +1600,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
                       if List.mem_assoc x tenv then static_error l ("Declaration hides existing local variable '" ^ x ^ "'.") None;
                       let tenv = (x, t)::tenv in
                       let env = (x, excep)::env in
-                      verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env body tcont return_cont econt
+                      verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets body tcont return_cont econt
                     end else
                       success()
                   end
@@ -1633,7 +1633,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
                     let xterm = get_unique_var_symb_non_ghost x t in
                     let tenv = (x, t)::tenv in
                     let env = (x, xterm)::env in
-                    verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env body tcont return_cont econt
+                    verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets body tcont return_cont econt
                   end else
                     success()
                 end
@@ -1654,20 +1654,20 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               begin fun (lbl, cont) ->
                 let cont blocks_done sizemap tenv ghostenv h env =
                   let tcont _ _ _ h env = cont blocks_done sizemap tenv ghostenv h env in
-                  verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env finally tcont return_cont econt
+                  verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets finally tcont return_cont econt
                 in
                 (lbl, cont)
               end
               lblenv
           in
           let tcont _ _ _ h env =
-            verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env finally tcont return_cont econt
+            verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets finally tcont return_cont econt
           in
           let return_cont h tenv env retval =
             let tcont _ _ _ h _ = return_cont h tenv env retval in
-            verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env finally tcont return_cont econt
+            verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets finally tcont return_cont econt
           in
-          verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env body tcont return_cont econt
+          verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets body tcont return_cont econt
         end
         begin fun () ->
           let xs = block_assigned_variables body in
@@ -1676,7 +1676,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           let env = bs @ env in
           let h = [] in
           let tcont _ _ _ _ _ = success() in
-          verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env body tcont return_cont econt
+          verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets body tcont return_cont econt
         end
     | PerformActionStmt (lcb, nonpure_ctxt, pre_bcn, pre_bcp_pats, consumed_handle_predicates, lpa, an, aargs, ss, closeBraceLoc, post_bcp_args_opt, produced_handle_predicates) ->
       let (_, boxpmap, inv, boxvarmap, amap, hpmap) =
@@ -1801,7 +1801,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
                let consumed_handle_id_list = List.map (fun (id, _) -> id) already_consumed_handles_info in
                let consumed_handles_ids = List.fold_right (fun (id, _) l -> mk_cons HandleIdType id l) already_consumed_handles_info (mk_nil ()) in
                assume (mk_distinct consumed_handles_ids) (fun _ ->
-               verify_cont (pn,ilist) blocks_done lblenv tparams boxes true leminfo funcmap predinstmap sizemap tenv ghostenv h env ss (fun sizemap tenv ghostenv h env ->
+               verify_cont (pn,ilist) blocks_done lblenv tparams boxes true leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss (fun sizemap tenv ghostenv h env ->
                  let h = act_perm_chunks @ h in
                  with_context (Executing (h, env, closeBraceLoc, "Closing box")) $. fun () ->
                  (* with_context PushSubcontext $. fun () -> *)
@@ -1994,7 +1994,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       let cont h tenv env = free_locals closeBraceLoc h tenv env !locals_to_free cont in
       let return_cont h tenv env retval = free_locals closeBraceLoc h tenv env !locals_to_free (fun h env -> return_cont h tenv env retval) in
       let lblenv = List.map (fun (lbl, lblcont) -> (lbl, (fun blocksdone sizemap tenv ghostenv h env -> free_locals closeBraceLoc h tenv env !locals_to_free (fun h env -> lblcont blocksdone sizemap tenv ghostenv h env)))) lblenv in
-      verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss (fun sizemap tenv ghostenv h env -> cont h tenv env) return_cont econt
+      verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss (fun sizemap tenv ghostenv h env -> cont h tenv env) return_cont econt
     | PureStmt (l, s) ->
       begin
         match s with
@@ -2002,7 +2002,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           nonpure_ctxt := not pure
         | _ -> ()
       end;
-      verify_stmt (pn,ilist) blocks_done lblenv tparams boxes true leminfo funcmap predinstmap sizemap tenv ghostenv h env s tcont return_cont econt
+      verify_stmt (pn,ilist) blocks_done lblenv tparams boxes true leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets s tcont return_cont econt
     | GotoStmt (l, lbl) ->
       if pure then static_error l "goto statements are not allowed in a pure context" None;
       begin
@@ -2020,13 +2020,13 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       end
     | SuperConstructorCall(l, es) -> static_error l "super must be first statement of constructor." None
   and
-    verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss cont return_cont econt =
+    verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss cont return_cont econt =
     match ss with
       [] -> cont sizemap tenv ghostenv h env
     | s::ss ->
       with_context (Executing (h, env, stmt_loc s, "Executing statement")) (fun _ ->
-        verify_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env s (fun sizemap tenv ghostenv h env ->
-          verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss cont return_cont econt
+        verify_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets s (fun sizemap tenv ghostenv h env ->
+          verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss cont return_cont econt
         ) return_cont econt
       )
   and
@@ -2052,7 +2052,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
   (* Region: verification of blocks *)
   
   and
-    goto_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env return_cont econt block =
+    goto_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets return_cont econt block =
     let `Block (inv, ss, cont) = block in
     let l() =
       match (inv, ss) with
@@ -2071,9 +2071,9 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         )
       | (false, None) ->
         let blocks_done = block::blocks_done in
-        verify_miniblock (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss (cont blocks_done) return_cont econt
+        verify_miniblock (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss (cont blocks_done) return_cont econt
     end
-  and verify_return_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env explicit l eo epilog return_cont econt =
+  and verify_return_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets explicit l eo epilog return_cont econt =
     with_context (Executing (h, env, l, "Executing return statement")) $. fun () ->
     if explicit then check_breakpoint h env l;
     if pure && not (List.mem "#result" ghostenv) then static_error l "Cannot return from a regular function in a pure context." None;
@@ -2096,11 +2096,11 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         cont h
     end $. fun h ->
     begin fun cont ->
-      verify_cont (pn,ilist) blocks_done lblenv tparams boxes true leminfo funcmap predinstmap sizemap tenv ghostenv h env epilog cont (fun _ _ -> assert false) econt
+      verify_cont (pn,ilist) blocks_done lblenv tparams boxes true leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets epilog cont (fun _ _ -> assert false) econt
     end $. fun sizemap tenv ghostenv h env ->
     return_cont h tenv env retval
   and
-    verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss cont return_cont econt =
+    verify_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss cont return_cont econt =
     let (decls, ss) =
       let rec iter decls ss =
         match ss with
@@ -2110,7 +2110,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       iter [] ss
     in
     begin fun cont ->
-      verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env decls cont return_cont econt
+      verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets decls cont return_cont econt
     end $. fun sizemap tenv ghostenv h env ->
     let assigned_vars = block_assigned_variables ss in
     let blocks =
@@ -2161,12 +2161,12 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           let cont blocks_done sizemap tenv ghostenv h env =
             match blocks' with
               [] -> cont sizemap tenv ghostenv h env
-            | block'::_ -> goto_block (pn,ilist) blocks_done !lblenv_ref tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env return_cont econt block'
+            | block'::_ -> goto_block (pn,ilist) blocks_done !lblenv_ref tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets return_cont econt block'
           in
           let block' = `Block (inv, ss, cont) in
           let lblenv =
             let cont blocks_done sizemap tenv ghostenv h env =
-              goto_block (pn,ilist) blocks_done !lblenv_ref tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env return_cont econt block'
+              goto_block (pn,ilist) blocks_done !lblenv_ref tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets return_cont econt block'
             in
             let rec iter lblenv lbls =
               match lbls with
@@ -2187,7 +2187,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         [] ->
         cont sizemap tenv ghostenv h env
       | block0::_ ->
-        goto_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env return_cont econt block0
+        goto_block (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets return_cont econt block0
     end;
     begin
       List.iter
@@ -2211,14 +2211,14 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
             in
             produce_asn [] [] ghostenv env inv real_unit None None (fun h ghostenv env ->
               let blocks_done = block::blocks_done in
-              verify_miniblock (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss (cont blocks_done) return_cont econt
+              verify_miniblock (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss (cont blocks_done) return_cont econt
             )
             end
         end
         blocks
     end;
     success()
-  and verify_miniblock (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss tcont return_cont econt =
+  and verify_miniblock (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss tcont return_cont econt =
     let (ss, tcont) =
       if not pure && List.exists (function ReturnStmt (_, _) -> true | _ -> false) ss then
         let (ss, lr, eo, epilog) =
@@ -2232,13 +2232,13 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         let tcont sizemap tenv ghostenv h env =
           let epilog = List.map (function (PureStmt (l, s)) -> s | s -> static_error (stmt_loc s) "An epilog statement must be a pure statement." None) epilog in
           reportStmtExec lr;
-          verify_return_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env true lr eo epilog return_cont econt
+          verify_return_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets true lr eo epilog return_cont econt
         in
         (ss, tcont)
       else
         (ss, tcont)
     in
-    verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env ss tcont return_cont econt
+    verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss tcont return_cont econt
   
   (* Region: verification of function bodies *)
   and add_rule_for_lemma lemma_name l pre post ps frac q_ref q_input_args unbound =
@@ -2462,6 +2462,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         (false, RealFuncInfo (gs, g, terminates), g::gs, lems, [])
     in
     let env = [(current_thread_name, get_unique_var_symb current_thread_name current_thread_type)] @ penv @ env in
+    let secrets = [] (* TODO *) in
     let _ =
       check_should_fail () $. fun () ->
       execute_branch $. fun () ->
@@ -2499,7 +2500,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
             iter [] ss
         in
         begin fun tcont ->
-          verify_cont (pn,ilist) [] [] tparams boxes true leminfo funcmap predinstmap sizemap tenv ghostenv h env prolog tcont (fun _ _ -> assert false) (fun _ _ _ -> assert false)
+          verify_cont (pn,ilist) [] [] tparams boxes true leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets prolog tcont (fun _ _ -> assert false) (fun _ _ _ -> assert false)
         end $. fun sizemap tenv ghostenv h env ->
         begin fun cont ->
           if unloadable && not in_pure_context then
@@ -2516,9 +2517,9 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           let outerlocals = ref [] in
           stmts_mark_addr_taken ss [(outerlocals, [])] (fun _ -> ());
           let body = [BlockStmt(l, [], ss, closeBraceLoc, outerlocals)] in
-          verify_block (pn,ilist) [] [] tparams boxes in_pure_context leminfo funcmap predinstmap sizemap tenv ghostenv h env body tcont return_cont (fun _ _ _ -> assert false)
+          verify_block (pn,ilist) [] [] tparams boxes in_pure_context leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets body tcont return_cont (fun _ _ _ -> assert false)
         end $. fun sizemap tenv ghostenv h env ->
-        verify_return_stmt (pn,ilist) [] [] tparams boxes in_pure_context leminfo funcmap predinstmap sizemap tenv ghostenv h env false closeBraceLoc None [] return_cont (fun _ _ _ -> assert false)
+        verify_return_stmt (pn,ilist) [] [] tparams boxes in_pure_context leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets false closeBraceLoc None [] return_cont (fun _ _ _ -> assert false)
       )
     in
     let _ = pop() in
@@ -2588,6 +2589,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         execute_branch begin fun () ->
         with_context (Executing ([], [], lm, Printf.sprintf "Class '%s': verifying constructor" cn)) $. fun () ->
         let env = get_unique_var_symbs_non_ghost ([(current_thread_name, current_thread_type)] @ xmap) in
+        let secrets = [] (* TODO *) in
         let (sizemap, indinfo) = switch_stmt ss env in
         let (ss, explicitsupercall) = match ss with SuperConstructorCall(l, es) :: body -> (body, Some(SuperConstructorCall(l, es))) | _ -> (ss, None) in
         let (in_pure_context, leminfo, ghostenv) = (false, RealMethodInfo (if terminates then Some rank else None), []) in
@@ -2639,7 +2641,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
             let fds = get_fields (pn,ilist) cn lm in
             let rec iter h fds =
               match fds with
-                [] -> verify_cont (pn,ilist) [] [] [] boxes in_pure_context leminfo funcmap predinstmap sizemap tenv ghostenv h env ss
+                [] -> verify_cont (pn,ilist) [] [] [] boxes in_pure_context leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss
                      (fun sizemap tenv ghostenv h env -> return_cont h tenv env None) return_cont econt
               | (f, {ft=t; fbinding=binding; finit=init})::fds ->
                 if binding = Instance then begin
@@ -2686,6 +2688,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         in
         begin
           let env = get_unique_var_symbs_non_ghost (ps @ [(current_thread_name, current_thread_type)]) in (* actual params invullen *)
+          let secrets = [] (* TODO *) in
           begin fun cont ->
             if fb = Instance then
             begin
@@ -2717,7 +2720,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
             verify_exceptional_return (pn,ilist) throwl h ghostenv env exceptp excep epost
           in
           let cont sizemap tenv ghostenv h env = return_cont h tenv env None in
-          verify_block (pn,ilist) [] [] [] boxes in_pure_context leminfo funcmap predinstmap sizemap tenv ghostenv h env ss cont return_cont econt
+          verify_block (pn,ilist) [] [] [] boxes in_pure_context leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss cont return_cont econt
         end
         end;
         verify_meths (pn,ilist) cfin cabstract boxes lems meths
@@ -2851,8 +2854,9 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
                                         let aarg_env = List.map (fun (x, y, t) -> (x, t)) aargs in
                                         let env = ["actionHandles", actionHandles; "predicateHandle", predicateHandle; "currentThread", currentThread] @
                                           post_boxvars @ old_boxvars @ aarg_env @ hpargs in
+                                        let secrets = [] (* TODO *) in
                                         let tenv = ["actionHandles", list_type HandleIdType; "predicateHandle", HandleIdType; "currentThread", intType] @ tenv in
-                                        verify_cont (pn,ilist) [] [] [] boxes true leminfo funcmap predinstmap [] tenv ghostenv h_post_hinv env ss begin fun _ _ _ h _ ->
+                                        verify_cont (pn,ilist) [] [] [] boxes true leminfo funcmap predinstmap [] tenv ghostenv h_post_hinv env secrets ss begin fun _ _ _ h _ ->
                                           let post_inv_env = [("predicateHandle", predicateHandle)] @ post_boxvars @ hpargs in
                                           (* does not consume extended handles, only suffices if one can only extend pure handles *)
                                           consume_asn rules [] h [] post_inv_env inv true real_unit (fun _ h _ _ _ -> success ())

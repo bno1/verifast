@@ -3330,6 +3330,9 @@ module VerifyProgram1(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         | e::es -> CallExpr (l, "cons", [], [], [LitPat e; LitPat (to_list_expr es)], Static)
       in
       check (to_list_expr es)
+    | SecretAsn (l, e) ->
+      let (w, _, _) = check e in
+      (SecretAsn (l, w), boolt, None)
     | e -> static_error (expr_loc e) "Expression form not allowed here." None
   and check_expr_t_core functypemap funcmap classmap interfmap (pn,ilist) tparams tenv (inAnnotation: bool option) e t0 =
     check_expr_t_core_core functypemap funcmap classmap interfmap (pn, ilist) tparams tenv inAnnotation e t0 false
@@ -5523,6 +5526,7 @@ let check_if_list_is_defined () =
       cont state (sizeof l t)
     | InstanceOfExpr(l, e, ManifestTypeExpr (l2, tp)) ->
       ev state e $. fun state v -> cont state (ctxt#mk_app instanceof_symbol [v; prover_type_term l2 tp])
+    (* | SecretAsn(l, e) -> ev state e $. fun state _ -> cont state ctxt#mk_true *)
     | _ -> static_error (expr_loc e) "Construct not supported in this position." None
   
   let rec eval_core ass_term read_field env e =
