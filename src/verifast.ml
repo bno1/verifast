@@ -224,6 +224,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               let tenv = List.map (fun (x, x0, tp, t, t0) -> (x, tp)) fparams @ tenv in
               let ghostenv = List.map (fun (x, x0, tp, t, t0) -> x) fparams @ ghostenv in
               let env = List.map (fun (x, x0, tp, t, t0) -> (x, t)) fparams @ env in
+              let secrets = secrets (* TODO *) in
               let lblenv = [] in
               let pure = true in
               let return_cont h tenv env t = assert_false h [] l "You cannot return out of a produce_function_pointer_chunk statement" None in
@@ -572,7 +573,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       end $. fun h ->
       cont (Chunk ((module_symb, true), [], real_unit, [current_module_term; ctxt#mk_false], None)::h) env
     | DeclStmt (ld, xs) ->
-      let rec iter h tenv ghostenv env xs =
+      let rec iter h tenv ghostenv env secrets xs =
         match xs with
           [] -> tcont sizemap tenv ghostenv h env
         | (l, te, x, e, (address_taken, blockPtr))::xs ->
@@ -589,7 +590,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
             in
             let addr = get_unique_var_symb_non_ghost (x ^ "_addr") (PtrType Void) in
             produce_c_object l real_unit addr t init true true h $. fun h ->
-            iter h ((x, envTp)::tenv) ghostenv ((x, addr)::env) xs
+            iter h ((x, envTp)::tenv) ghostenv ((x, addr)::env) secrets xs
           in
           match t with
             StaticArrayType (elemTp, elemCount) ->
@@ -608,11 +609,11 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               let addr = get_unique_var_symb_non_ghost (x ^ "_addr") (PtrType t) in
               let h = ((Chunk ((pointee_pred_symb l t, true), [], real_unit, [addr; v], None)) :: h) in
               if pure then static_error l "Taking the address of a ghost variable is not allowed." None;
-              iter h ((x, RefType(t)) :: tenv) ghostenv ((x, addr)::env) xs
+              iter h ((x, RefType(t)) :: tenv) ghostenv ((x, addr)::env) secrets xs
             else
-              iter h ((x, t) :: tenv) ghostenv ((x, v)::env) xs
+              iter h ((x, t) :: tenv) ghostenv ((x, v)::env) secrets xs
       in
-      iter h tenv ghostenv env xs
+      iter h tenv ghostenv env secrets xs
     | ExprStmt e ->
       let (w, _) = check_expr (pn,ilist) tparams tenv e in
       verify_expr false h env None w (fun h env _ -> cont h env) econt
@@ -1970,7 +1971,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       let verify_lems lems0 =
         List.fold_left
           begin fun lems0 (fn, FuncInfo (funenv, fterm, l, k, tparams', rt, xmap, nonghost_callers_only, pre, pre_tenv, post, terminates, functype_opt, Some (Some (ss, closeBraceLoc)), _, _)) ->
-            let gs', lems' = verify_func pn ilist [] lems0 boxes predinstmap funcmap tparams funenv l k tparams' rt fn xmap nonghost_callers_only pre pre_tenv post terminates ss closeBraceLoc in
+            let gs', lems' = verify_func pn ilist [] lems0 boxes predinstmap funcmap tparams funenv secrets l k tparams' rt fn xmap nonghost_callers_only pre pre_tenv post terminates ss closeBraceLoc in
             lems'
           end
           lems0
@@ -2427,7 +2428,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     match ps with
       [] -> cont h
     | _ -> with_context (Executing (h, env, l, "Freeing parameters.")) (fun _ -> cleanup_heapy_locals_core (pn, ilist) l h env ps cont)
-  and verify_func pn ilist gs lems boxes predinstmap funcmap tparams env l k tparams' rt g ps nonghost_callers_only pre pre_tenv post terminates ss closeBraceLoc =
+  and verify_func pn ilist gs lems boxes predinstmap funcmap tparams env secrets l k tparams' rt g ps nonghost_callers_only pre pre_tenv post terminates ss closeBraceLoc =
     if startswith g "vf__" then static_error l "The name of a user-defined function must not start with 'vf__'." None;
     let tparams = tparams' @ tparams in
     let _ = push() in
@@ -2462,7 +2463,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         (false, RealFuncInfo (gs, g, terminates), g::gs, lems, [])
     in
     let env = [(current_thread_name, get_unique_var_symb current_thread_name current_thread_type)] @ penv @ env in
-    let secrets = [] (* TODO *) in
+    let secrets = secrets (* TODO *) in
     let _ =
       check_should_fail () $. fun () ->
       execute_branch $. fun () ->
@@ -2776,7 +2777,8 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       let FuncInfo ([], fterm, l, k, tparams', rt, ps, nonghost_callers_only, pre, pre_tenv, post, terminates, _, Some (Some (ss, closeBraceLoc)),fb,v) = (List.assoc g funcmap)in
       let tparams = [] in
       let env = [] in
-      verify_func pn ilist gs lems boxes predinstmap funcmap tparams env l k tparams' rt g ps nonghost_callers_only pre pre_tenv post terminates ss closeBraceLoc
+      let secrets = [] (* TODO *) in
+      verify_func pn ilist gs lems boxes predinstmap funcmap tparams env secrets l k tparams' rt g ps nonghost_callers_only pre pre_tenv post terminates ss closeBraceLoc
       end in
       verify_funcs (pn, ilist) boxes gs' lems' ds
     | BoxClassDecl (l, bcn, _, _, _, _)::ds -> let bcn=full_name pn bcn in
