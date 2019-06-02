@@ -28,7 +28,7 @@ let ghost_keywords = [
   "produce_lemma_function_pointer_chunk"; "duplicate_lemma_function_pointer_chunk"; "produce_function_pointer_chunk";
   "producing_box_predicate"; "producing_handle_predicate"; "producing_fresh_handle_predicate"; "box"; "handle"; "any"; "split_fraction"; "by"; "merge_fractions";
   "unloadable_module"; "decreases"; "forall_"; "import_module"; "require_module"; ".."; "extends"; "permbased";
-  "terminates"; "abstract_type"
+  "terminates"; "abstract_type"; "secret_"
 ]
 
 let c_keywords = [
@@ -1212,10 +1212,14 @@ and
   [< e0 = parse_sep_expr; e = parse_assign_expr_rest e0 >] -> e
 and
   parse_sep_expr = parser
-  [< e0 = parse_pointsto_expr; e = parser
+  [< e0 = parse_secret_expr; e = parser
     [< '(l, Kwd "&*&"); e1 = parse_sep_expr >] -> Sep (l, e0, e1)
   | [< >] -> e0
   >] -> e
+and
+  parse_secret_expr = parser
+    [< '(l, Kwd "secret_"); '(_, Kwd "("); arg = parse_expr_primary; '(_, Kwd ")") >] -> SecretAsn (l, arg) (* raise (ParseException (l, "parse_secret_expr unimpl")) *)
+  | [< e = parse_pointsto_expr >] -> e
 and
   parse_pointsto_expr = parser
   [< e = parse_cond_expr; e = parser

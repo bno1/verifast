@@ -403,6 +403,7 @@ and
   | EnsuresAsn of loc * asn
   | MatchAsn of loc * expr * pat
   | WMatchAsn of loc * expr * pat * type_
+  | SecretAsn of loc * expr
 and
   asn = expr
 and
@@ -856,6 +857,7 @@ let rec expr_loc e =
   | ForallAsn (l, tp, i, e) -> l
   | CoefAsn (l, coef, body) -> l
   | EnsuresAsn (l, body) -> l
+  | SecretAsn (l, e) -> l
 let asn_loc a = expr_loc a
   
 let stmt_loc s =
