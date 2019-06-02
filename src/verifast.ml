@@ -2020,6 +2020,8 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       | Some cont -> cont blocks_done sizemap tenv ghostenv h env
       end
     | SuperConstructorCall(l, es) -> static_error l "super must be first statement of constructor." None
+    | Classify (l, e) -> static_error l "classify not impl" None
+    | Declassify (l, e) -> static_error l "declassify not impl" None
   and
     verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss cont return_cont econt =
     match ss with

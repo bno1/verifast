@@ -28,7 +28,7 @@ let ghost_keywords = [
   "produce_lemma_function_pointer_chunk"; "duplicate_lemma_function_pointer_chunk"; "produce_function_pointer_chunk";
   "producing_box_predicate"; "producing_handle_predicate"; "producing_fresh_handle_predicate"; "box"; "handle"; "any"; "split_fraction"; "by"; "merge_fractions";
   "unloadable_module"; "decreases"; "forall_"; "import_module"; "require_module"; ".."; "extends"; "permbased";
-  "terminates"; "abstract_type"; "secret_"
+  "terminates"; "abstract_type"; "secret_"; "classify_"; "declassify_"
 ]
 
 let c_keywords = [
@@ -1022,6 +1022,8 @@ and
      '(_, Kwd "("); params = rep_comma (parser [< '(l, Ident x) >] -> (l, x)); '(_, Kwd ")");
      '(openBraceLoc, Kwd "{"); ss = parse_stmts; '(closeBraceLoc, Kwd "}") >] ->
   ProduceFunctionPointerChunkStmt (l, ftn, fpe, targs, args, params, openBraceLoc, ss, closeBraceLoc)
+| [< '(l, Kwd "classify_"); p = parse_asn; '(_, Kwd ";") >] -> Classify (l, p)
+| [< '(l, Kwd "declassify_"); p = parse_asn; '(_, Kwd ";") >] -> Declassify (l, p)
 | [< '(l, Kwd "goto"); '(_, Ident lbl); '(_, Kwd ";") >] -> GotoStmt (l, lbl)
 | [< '(l, Kwd "invariant"); inv = parse_asn; '(_, Kwd ";") >] -> InvariantStmt (l, inv)
 | [< '(l, Kwd "return"); eo = parser [< '(_, Kwd ";") >] -> None | [< e = parse_expr; '(_, Kwd ";") >] -> Some e >] -> ReturnStmt (l, eo)
