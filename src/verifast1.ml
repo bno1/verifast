@@ -5526,7 +5526,7 @@ let check_if_list_is_defined () =
       cont state (sizeof l t)
     | InstanceOfExpr(l, e, ManifestTypeExpr (l2, tp)) ->
       ev state e $. fun state v -> cont state (ctxt#mk_app instanceof_symbol [v; prover_type_term l2 tp])
-    (* | SecretAsn(l, e) -> ev state e $. fun state _ -> cont state ctxt#mk_true *)
+    | SecretAsn(l, e) -> static_error l "secret_ not impl" None (* ev state e $. fun state _ -> cont state ctxt#mk_true *)
     | _ -> static_error (expr_loc e) "Construct not supported in this position." None
   
   let rec eval_core ass_term read_field env e =
