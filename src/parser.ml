@@ -1022,8 +1022,8 @@ and
      '(_, Kwd "("); params = rep_comma (parser [< '(l, Ident x) >] -> (l, x)); '(_, Kwd ")");
      '(openBraceLoc, Kwd "{"); ss = parse_stmts; '(closeBraceLoc, Kwd "}") >] ->
   ProduceFunctionPointerChunkStmt (l, ftn, fpe, targs, args, params, openBraceLoc, ss, closeBraceLoc)
-| [< '(l, Kwd "classify_"); p = parse_asn; '(_, Kwd ";") >] -> Classify (l, p)
-| [< '(l, Kwd "declassify_"); p = parse_asn; '(_, Kwd ";") >] -> Declassify (l, p)
+| [< '(l, Kwd "classify_"); p = parse_asn; '(_, Kwd ";") >] -> ClassifyStmt (l, p)
+| [< '(l, Kwd "declassify_"); p = parse_asn; '(_, Kwd ";") >] -> DeclassifyStmt (l, p)
 | [< '(l, Kwd "goto"); '(_, Ident lbl); '(_, Kwd ";") >] -> GotoStmt (l, lbl)
 | [< '(l, Kwd "invariant"); inv = parse_asn; '(_, Kwd ";") >] -> InvariantStmt (l, inv)
 | [< '(l, Kwd "return"); eo = parser [< '(_, Kwd ";") >] -> None | [< e = parse_expr; '(_, Kwd ";") >] -> Some e >] -> ReturnStmt (l, eo)

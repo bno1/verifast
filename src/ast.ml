@@ -599,8 +599,8 @@ and
       stmt list
   | Break of loc
   | SuperConstructorCall of loc * expr list
-  | Classify of loc * expr
-  | Declassify of loc * expr
+  | ClassifyStmt of loc * expr
+  | DeclassifyStmt of loc * expr
 and
   loop_spec = (* ?loop_spec *)
   | LoopInv of asn
@@ -895,8 +895,8 @@ let stmt_loc s =
   | ProduceFunctionPointerChunkStmt (l, ftn, fpe, targs, args, params, openBraceLoc, ss, closeBraceLoc) -> l
   | Break (l) -> l
   | SuperConstructorCall(l, _) -> l
-  | Classify (l, _) -> l
-  | Declassify (l, _) -> l
+  | ClassifyStmt (l, _) -> l
+  | DeclassifyStmt (l, _) -> l
 
 let stmt_fold_open f state s =
   match s with

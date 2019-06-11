@@ -2027,10 +2027,10 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       | Some cont -> cont blocks_done sizemap tenv ghostenv h env
       end
     | SuperConstructorCall(l, es) -> static_error l "super must be first statement of constructor." None
-    | Classify (l, e) ->
+    | ClassifyStmt (l, e) ->
       if not pure then static_error l "This function may be called only from a pure context." None;
       static_error l "classify not impl" None
-    | Declassify (l, e) ->
+    | DeclassifyStmt (l, e) ->
       if not pure then static_error l "This function may be called only from a pure context." None;
       static_error l "declassify not impl" None
   and
