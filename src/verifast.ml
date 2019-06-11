@@ -1257,7 +1257,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           let tenv = List.fold_left (fun tenv0 (env, t) -> merge_tenvs l (List.map (fun (x, tp, t) -> (x, tp)) env) tenv0) tenv ts in
           let ghostenv = List.fold_left (fun ghostenv (env, t) -> List.map (fun (x, tp, t) -> x) env @ ghostenv) ghostenv ts in
           let ts = List.map (fun (env, t) -> t) ts in
-          let secrets = secrets (* TODO *)
+          let secrets = secrets (* TODO *) in
           produce_chunk h g_symb targs coef inputParamCount (ts0 @ ts) None $. fun h ->
           tcont sizemap tenv ghostenv h env secrets
         )
