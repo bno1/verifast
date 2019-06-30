@@ -11,6 +11,8 @@ open Verifast0
 open Verifast1
 open Assertions
 open Verify_expr
+open SExpressions
+open SExpressionEmitter
 
 module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
   
@@ -2029,7 +2031,22 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     | SuperConstructorCall(l, es) -> static_error l "super must be first statement of constructor." None
     | ClassifyStmt (l, e) ->
       if not pure then static_error l "This function may be called only from a pure context." None;
-      static_error l "classify not impl" None
+      let (w, _) = check_expr (pn,ilist) tparams tenv e in
+      let t = ev w in
+      let rec iter secrets e =
+        match e with
+          ExprAsn (_, we) -> iter secrets we
+        | Var (_, x) ->
+            let t = List.assoc x env in
+            if List.mem t secrets
+              then secrets
+              else (t::secrets)
+        | _ -> static_error (expr_loc e) ("unsupported expression" ^ (string_of_sexpression (sexpr_of_expr e))) None
+      in
+      let secrets' = if List.mem t secrets then secrets else (t::secrets) (*iter secrets w*) in
+      printf "Secrets: %s\n" (String.concat ", " (List.map ctxt#pprint secrets'));
+      ctxt#dump_state;
+      cont h env secrets'
     | DeclassifyStmt (l, e) ->
       if not pure then static_error l "This function may be called only from a pure context." None;
       static_error l "declassify not impl" None
