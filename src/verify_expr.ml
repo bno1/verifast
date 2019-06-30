@@ -98,6 +98,8 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     | InvariantStmt _ -> []
     | Break _ -> []
     | SuperConstructorCall(_, es) -> flatmap (fun e -> expr_assigned_variables e) es
+    | ClassifyStmt _ -> []
+    | DeclassifyStmt _ -> []
 
   let dummypat = SrcPat DummyPat
   
