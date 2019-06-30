@@ -264,6 +264,7 @@ class smtlib_context input_fun output (features : string list) =
         let quant = (Smtlib.forall (List.mapi Smtlib.mk_var tps) triggers body) in
         add_assert quant
    method simplify (t : Smtlib.term) = Some t
+   method dump_state = ()
   end
 
 let dump_smtlib_ctxt filename features =

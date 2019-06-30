@@ -226,6 +226,10 @@ object
        | (None, Some yy) -> Some (Right yy)
        | (None, None) -> None
        end
+  method dump_state = begin
+    p1#dump_state;
+    p2#dump_state;
+  end
 end
 
 let combine

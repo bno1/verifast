@@ -285,4 +285,5 @@ class z3_context () =
         (* printf "%s\n" (string_of_sexpr (simplify (parse_sexpr (Z3native.ast_to_string ctxt quant)))); *)
         Z3native.solver_assert ctxt solver quant
    method simplify (t: Z3native.ast): Z3native.ast option = Some(Z3native.simplify ctxt t)
+   method dump_state = ()
   end

@@ -1555,9 +1555,8 @@ and context () =
         | _ -> Unknown3
     
     method dump_state =
-      (* print_endline ("==== Redux query failed: State report ====");
-      List.iter (fun v -> if v#initial_child#value = v then (v#dump_state)) values; *)
-      ()
+      print_endline ("==== Redux query failed: State report ====");
+      List.iter (fun v -> if v#initial_child#value = v then (v#dump_state)) values;
       
     method begin_formal = formal_depth <- formal_depth + 1
     method end_formal = formal_depth <- formal_depth - 1
