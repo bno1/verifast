@@ -66,4 +66,5 @@ class virtual ['typenode, 'symbol, 'termnode] context =
     method virtual assume_forall: string (* description for diagnostic traces *) -> 'termnode list -> ('typenode) list -> 'termnode -> unit
     method virtual simplify: 'termnode -> 'termnode option
     method virtual dump_state: unit
+    method virtual get_symbols: 'termnode -> 'symbol list
   end

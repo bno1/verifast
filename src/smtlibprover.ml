@@ -265,6 +265,7 @@ class smtlib_context input_fun output (features : string list) =
         add_assert quant
    method simplify (t : Smtlib.term) = Some t
    method dump_state = ()
+   method get_symbols (_ : Smtlib.term) = ( [] : Smtlib.symbol list)
   end
 
 let dump_smtlib_ctxt filename features =

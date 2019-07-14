@@ -286,4 +286,5 @@ class z3_context () =
         Z3native.solver_assert ctxt solver quant
    method simplify (t: Z3native.ast): Z3native.ast option = Some(Z3native.simplify ctxt t)
    method dump_state = ()
+   method get_symbols (_ : Z3native.ast) = ( [] : Z3native.func_decl list)
   end

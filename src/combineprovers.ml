@@ -230,6 +230,9 @@ object
     p1#dump_state;
     p2#dump_state;
   end
+  method get_symbols t = begin
+    List.combine (p1#get_symbols (my_fst t)) (p2#get_symbols (my_snd t))
+  end
 end
 
 let combine

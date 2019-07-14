@@ -1666,4 +1666,5 @@ and context () =
         | _ -> failwith "Redux supports only symbol applications at the top level of axiom triggers."
       )
     method simplify (t: (symbol, termnode) term): ((symbol, termnode) term) option = None
+    method get_symbols (t : (symbol, termnode) term) = ( [] : symbol list)
   end
