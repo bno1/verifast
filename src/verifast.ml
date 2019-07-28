@@ -2033,7 +2033,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       if not pure then static_error l "This function may be called only from a pure context." None;
       let (w, _) = check_expr (pn,ilist) tparams tenv e in
       let t = ev w in
-      let rec iter secrets e =
+      (*let rec iter secrets e =
         match e with
           ExprAsn (_, we) -> iter secrets we
         | Var (_, x) ->
@@ -2042,14 +2042,32 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               then secrets
               else (t::secrets)
         | _ -> static_error (expr_loc e) ("unsupported expression" ^ (string_of_sexpression (sexpr_of_expr e))) None
-      in
-      let secrets' = if List.mem t secrets then secrets else (t::secrets) (*iter secrets w*) in
-      printf "Secrets: %s\n" (String.concat ", " (List.map ctxt#pprint secrets'));
-      ctxt#dump_state;
+      in*)
+      let new_secrets = ref [] in
+      List.iter (fun s ->
+        if List.mem s secrets || List.mem s !new_secrets
+        then ()
+        else new_secrets := s :: !new_secrets
+      ) (ctxt#get_symbols t);
+      (*let secrets' = if List.mem t secrets then secrets else (t::secrets) (*iter secrets w*) in*)
+      let secrets' = !new_secrets @ secrets in
+      printf "Secrets: %s\n" (String.concat ", " (List.map ctxt#pprint_sym secrets'));
       cont h env secrets'
     | DeclassifyStmt (l, e) ->
       if not pure then static_error l "This function may be called only from a pure context." None;
-      static_error l "declassify not impl" None
+      let (w, _) = check_expr (pn,ilist) tparams tenv e in
+      let t = ev w in
+      let rm_secrets = ref [] in
+      List.iter (fun s ->
+        if List.mem s secrets
+        then if List.mem s !rm_secrets then () else rm_secrets := s :: !rm_secrets
+        else static_error l (sprintf "symbol %s is not secret" (ctxt#pprint_sym s)) None
+      ) (ctxt#get_symbols t);
+      if List.compare_length_with !rm_secrets 1 > 0
+      then static_error l "too many symbols in expression" None;
+      let secrets' = List.filter (fun s -> not (List.mem s !rm_secrets)) secrets in
+      printf "Secrets: %s\n" (String.concat ", " (List.map ctxt#pprint_sym secrets'));
+      cont h env secrets'
   and
     verify_cont (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets ss cont return_cont econt =
     match ss with

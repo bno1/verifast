@@ -400,6 +400,7 @@ and termnode (ctxt: context) s initial_children =
           "(" ^ v1#representativeString ^ " " ^ symbol#name ^ " " ^ v2#representativeString ^ ")"
         | _ ->
           symbol#name ^ "(" ^ String.concat ", " (List.map (fun v -> v#representativeString) children) ^ ")"
+    method get_symbols = s :: List.concat (List.map (fun v -> v#get_symbols) children)
   end
 and valuenode (ctxt: context) =
   object (self)
@@ -654,6 +655,7 @@ and valuenode (ctxt: context) =
         List.iter (fun v -> print_endline ("!= " ^ v#representativeString)) neqs;
         print_newline()
       end
+    method get_symbols = List.concat (List.map (fun t -> t#get_symbols) children)
   end
 and context () =
   let initialPendingSplitsFrontNode = ref None in
@@ -1666,5 +1668,27 @@ and context () =
         | _ -> failwith "Redux supports only symbol applications at the top level of axiom triggers."
       )
     method simplify (t: (symbol, termnode) term): ((symbol, termnode) term) option = None
-    method get_symbols (t : (symbol, termnode) term) = ( [] : symbol list)
+    method get_symbols (t : (symbol, termnode) term) =
+      match t with
+      | TermNode tn -> tn#get_symbols
+      | Iff (a, b) -> self#get_symbols a @ self#get_symbols b
+      | Eq (a, b) -> self#get_symbols a @ self#get_symbols b
+      | Le (a, b) -> self#get_symbols a @ self#get_symbols b
+      | Lt (a, b) -> self#get_symbols a @ self#get_symbols b
+      | Not a -> self#get_symbols a
+      | And (a, b) -> self#get_symbols a @ self#get_symbols b
+      | Or (a, b) -> self#get_symbols a @ self#get_symbols b
+      | Add (a, b) -> self#get_symbols a @ self#get_symbols b
+      | Sub (a, b) -> self#get_symbols a @ self#get_symbols b
+      | Mul (a, b) -> self#get_symbols a @ self#get_symbols b
+      | NumLit a -> []
+      | App (s, tl, None) -> s :: List.concat (List.map self#get_symbols tl)
+      | App (s, tl, Some tn) -> s :: List.concat (List.map self#get_symbols tl) @ tn#get_symbols
+      | IfThenElse (a, b, c) -> self#get_symbols a @ self#get_symbols b @ self#get_symbols c
+      | RealLe (a, b) -> self#get_symbols a @ self#get_symbols b
+      | RealLt (a, b) -> self#get_symbols a @ self#get_symbols b
+      | True -> []
+      | False -> []
+      | BoundVar _ -> []
+      | Implies (a, b) -> self#get_symbols a @ self#get_symbols b
   end
