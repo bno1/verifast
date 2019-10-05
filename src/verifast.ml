@@ -170,14 +170,16 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               | Some bs -> bs
             in
             let xmap = List.map (fun (x, tp0) -> let tp = instantiate_type tpenv tp0 in (x, tp, tp0)) xmap in
-            let ftargenv =
+            let args =
               match zip ftxmap args with
                 None -> static_error l "Incorrect number of function pointer chunk arguments" None
               | Some bs ->
                 List.map
-                  begin fun ((x, tp), e) ->
-                    let w = check_expr_t (pn,ilist) tparams tenv e (instantiate_type tpenv tp) in
-                    (x, ev w)
+                  begin fun ((x, tp0), e) ->
+                    let tp = instantiate_type tpenv tp0 in
+                    let w = check_expr_t (pn,ilist) tparams tenv e tp in
+                    let v = ev w in
+                    (x, v, prover_convert_term v tp tp0)
                   end
                   bs
             in
@@ -221,6 +223,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               let h = [] in
               with_context (Executing (h, [], openBraceLoc, "Producing function type precondition")) $. fun () ->
               with_context PushSubcontext $. fun () ->
+              let ftargenv = List.map (fun (x, v, v0) -> (x, v0)) args in
               let pre_env = [("this", fterm)] @ currentThreadEnv @ ftargenv @ List.map (fun (x, x0, tp, t, t0) -> (x0, t0)) fparams in
               produce_asn tpenv h [] pre_env pre real_unit None None $. fun h _ ft_env ->
               with_context PopSubcontext $. fun () ->
@@ -309,7 +312,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               with_context PopSubcontext $. fun () ->
               check_leaks h [] closeBraceLoc "produce_function_pointer_chunk body leaks heap chunks"
             end;
-            (ftn, ft_predfammaps, fttargs, List.map snd ftargenv)
+            (ftn, ft_predfammaps, fttargs, List.map (fun (x, v, v0) -> v) args)
           end
       in
       let [(_, (_, _, _, _, symb, _, _))] = ft_predfammaps in
@@ -389,7 +392,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
             if gh <> Ghost then static_error lftn "Only lemma function types allowed here." None;
             let [(_, (_, _, _, _, p_tn, _, _))] = ft_predfammaps in p_tn
           in
-          let targs = List.map (fun _ -> InferredType (object end, ref None)) fttparams in
+          let targs = List.map (fun _ -> InferredType (object end, ref Unconstrained)) fttparams in
           let args = List.map (fun _ -> SrcPat DummyPat) ftxmap in
           consume_chunk rules h ghostenv [] [] l (p_symb, true) targs real_unit dummypat (Some (List.length ftxmap + 1)) ((SrcPat DummyPat)::args) $. fun _ h coef ts size _ _ _ ->
           produce_chunk h (p_symb, true) targs coef (Some (List.length ftxmap + 1)) ts size $. fun h ->
@@ -648,7 +651,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       let tcont _ _ _ h env = tcont sizemap tenv ghostenv h (List.filter (fun (x, _) -> List.mem_assoc x tenv) env) in
       begin match unfold_inferred_type tp with
         InductiveType (i, targs) ->
-        let (tn, targs, Some (_, itparams, ctormap, _)) = (i, targs, try_assoc' Ghost (pn,ilist) i inductivemap) in
+        let (tn, targs, Some (_, itparams, ctormap, _, _)) = (i, targs, try_assoc' Ghost (pn,ilist) i inductivemap) in
         let (Some tpenv) = zip itparams targs in
         let rec iter ctors cs =
           match cs with
@@ -839,7 +842,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
             match try_assoc (g, fns) predinstmap with
               Some (predenv, _, predinst_tparams, ps, g_symb, inputParamCount, p) ->
               let (targs, tpenv) =
-                let targs = if targs = [] then List.map (fun _ -> InferredType (object end, ref None)) predinst_tparams else targs in
+                let targs = if targs = [] then List.map (fun _ -> InferredType (object end, ref Unconstrained)) predinst_tparams else targs in
                 match zip predinst_tparams targs with
                   None -> static_error l (Printf.sprintf "Predicate expects %d type arguments." (List.length predinst_tparams)) None
                 | Some bs -> (targs, bs)
@@ -955,7 +958,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         match try_assoc' Ghost (pn,ilist) p predfammap with
           None -> static_error l "No such predicate." None
         | Some (_, predfam_tparams, arity, pts, g_symb, inputParamCount, _) ->
-          let targs = if targs = [] then List.map (fun _ -> InferredType (object end, ref None)) predfam_tparams else targs in
+          let targs = if targs = [] then List.map (fun _ -> InferredType (object end, ref Unconstrained)) predfam_tparams else targs in
           let tpenv =
             match zip predfam_tparams targs with
               None -> static_error l "Incorrect number of type arguments." None
@@ -1160,7 +1163,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           begin
           match try_assoc (g, fns) predinstmap with
             Some (predenv, lpred, predinst_tparams, ps, g_symb, inputParamCount, body) ->
-            let targs = if targs = [] then List.map (fun _ -> InferredType (object end, ref None)) predinst_tparams else targs in
+            let targs = if targs = [] then List.map (fun _ -> InferredType (object end, ref Unconstrained)) predinst_tparams else targs in
             let tpenv =
               match zip predinst_tparams targs with
                 None -> static_error l "Incorrect number of type arguments." None
