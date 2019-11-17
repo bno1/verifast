@@ -47,6 +47,7 @@ module VerifyProgram1(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     option_disable_overflow_check=disable_overflow_check;
     option_allow_should_fail=allow_should_fail;
     option_emit_manifest=emit_manifest;
+    option_check_manifest=check_manifest;
     option_include_paths=include_paths;
     option_use_java_frontend=use_java_frontend;
     option_enforce_annotations=enforce_annotations;
@@ -3147,7 +3148,7 @@ module VerifyProgram1(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           (targs, tpenv)
       in
       let func_call () =
-        match try_assoc g tenv with
+        match match try_assoc g tenv with None -> None | Some tp -> Some (unfold_inferred_type tp) with
           Some (PtrType (FuncType ftn)) ->
           let (_, gh, tparams, rt, ftxmap, xmap, pre, post, terminates, ft_predfammap) =
             match try_assoc ftn functypemap with

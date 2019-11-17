@@ -14,6 +14,25 @@ open Verify_expr
 open SExpressions
 open SExpressionEmitter
 
+exception FileNotFound of string
+
+let read_file_lines path =
+  if Sys.file_exists path then
+    let file = open_in path in
+    do_finally (fun () ->
+      let rec iter () =
+        try
+          let line = input_line file in
+          let n = String.length line in
+          let line = if n > 0 && line.[n - 1] = '\r' then String.sub line 0 (n - 1) else line in
+          line::iter()
+        with
+          End_of_file -> []
+      in
+      iter()
+    ) (fun () -> close_in file)
+  else raise (FileNotFound path)
+
 module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
   
   include VerifyExpr(VerifyProgramArgs)
@@ -367,6 +386,13 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       if not pure then static_error l "This function may be called only from a pure context." None;
       let (w, tp) = check_expr (pn,ilist) tparams tenv e in
       assume_instanceof l (ev w) tp (fun () -> cont h env secrets)
+    | ExprStmt (CallExpr (l, "produce_func_lt", [], [], [LitPat (Var (lv, fn))], Static)) when language = CLang ->
+      begin match resolve Ghost (pn,ilist) l fn funcmap with
+        None -> static_error l "No such function." None
+      | Some (fn, FuncInfo (funenv, fterm, lf, k, f_tparams, rt, ps, nonghost_callers_only, pre, pre_tenv, post, terminates, functype_opt, body',fb,v)) ->
+        if body' = None then register_prototype_used lf fn fterm
+      end;
+      cont h env secrets
     | ProduceLemmaFunctionPointerChunkStmt (l, e, ftclause_opt, body) ->
       verify_produce_function_pointer_chunk_stmt Ghost l e ftclause_opt body
     | ProduceFunctionPointerChunkStmt (l, ftn, fpe, targs, args, params, openBraceLoc, ss, closeBraceLoc) ->
@@ -1394,9 +1420,10 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       tcont sizemap ((x, HandleIdType)::tenv) (x::ghostenv) (Chunk ((hpn_symb, true), [], real_unit, [handleTerm; boxIdTerm], None)::is_handle_chunks@h) ((x, handleTerm)::env) secrets
     | ReturnStmt (l, eo) ->
       verify_return_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets true l eo [] return_cont econt
-    | WhileStmt (l, e, None, dec, ss) ->
+    | WhileStmt (l, e, None, dec, ss, final_ss) ->
       static_error l "Loop invariant required." None
-    | WhileStmt (l, e, Some (LoopInv p), dec, ss) ->
+    | WhileStmt (l, e, Some (LoopInv p), dec, ss, final_ss) ->
+      let ss = ss @ final_ss in (* CAVEAT: if we add support for 'continue', this needs to change. *)
       if not pure then begin
         match ss with PureStmt (lp, _)::_ -> static_error lp "Pure statement not allowed here." None | _ -> ()
       end;
@@ -1462,7 +1489,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         cont h'''
       end $. fun h''' ->
       check_leaks h''' env endBodyLoc "Loop leaks heap chunks."
-    | WhileStmt (l, e, Some (LoopSpec (pre, post)), dec, ss) ->
+    | WhileStmt (l, e, Some (LoopSpec (pre, post)), dec, ss, final_ss) ->
       if not pure then begin
         match ss with PureStmt (lp, _)::_ -> static_error lp "Pure statement not allowed here." None | _ -> ()
       end;
@@ -1478,7 +1505,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           BlockStmt(_, _, ss, _, locals_to_free) :: rest -> check_block_declarations ss; (ss @ rest, locals_to_free)
         | _ -> (ss, ref [])
       in
-      let xs = (expr_assigned_variables e) @ (block_assigned_variables ss) in
+      let xs = (expr_assigned_variables e) @ (block_assigned_variables ss)  @ block_assigned_variables final_ss in
       let xs = List.filter (fun x -> match try_assoc x tenv with None -> false | Some (RefType _) -> false | _ -> true) xs in
       let (pre, tenv') = check_asn (pn,ilist) tparams tenv pre in
       let old_xs_tenv = List.map (fun x -> ("old_" ^ x, List.assoc x tenv)) xs in
@@ -1514,6 +1541,7 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         in
         iter [] ss
       in
+      let ss_before = ss_before @ final_ss in
       let xs_ss_after = block_assigned_variables ss_after in
       let exit_loop h' env' cont =
         execute_branch (fun () -> check_post h' env');
@@ -3060,8 +3088,11 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       do_finally (fun () ->
         List.iter (fun line -> output_string file (line ^ "\n")) !jardeps
       ) (fun () -> close_out file)
-    else
+    else begin
+      if check_manifest then
+        if read_file_lines jardeps_filename <> !jardeps then raise (CompilationError ("The manifest generated for " ^ path ^ " does not match the contents of " ^ jardeps_filename));
       jardeps_map := (jardeps_filename, !jardeps)::!jardeps_map
+    end
 
 (*
 There are 7 kinds of entries possible in a vfmanifest/dll_vfmanifest file
@@ -3170,8 +3201,11 @@ There are 7 kinds of entries possible in a vfmanifest/dll_vfmanifest file
       do_finally (fun () ->
         List.iter (fun line -> output_string file (line ^ "\n")) lines
       ) (fun () -> close_out file)
-    else
+    else begin
+      if check_manifest then
+        if read_file_lines manifest_filename <> lines then raise (CompilationError ("The manifest generated for " ^ path ^ " does not match the contents of " ^ manifest_filename));
       manifest_map := (manifest_filename, lines)::!manifest_map
+    end
   
   let () =
     if file_type path <> Java then
@@ -3281,25 +3315,6 @@ let remove_dups bs =
 
 exception LinkError of string
 
-exception FileNotFound
-
-let read_file_lines path =
-  if Sys.file_exists path then
-    let file = open_in path in
-    do_finally (fun () ->
-      let rec iter () =
-        try
-          let line = input_line file in
-          let n = String.length line in
-          let line = if n > 0 && line.[n - 1] = '\r' then String.sub line 0 (n - 1) else line in
-          line::iter()
-        with
-          End_of_file -> []
-      in
-      iter()
-    ) (fun () -> close_in file)
-  else raise FileNotFound
-
 let parse_line line =
   let space = String.index line ' ' in
   let command = String.sub line 0 space in
@@ -3348,11 +3363,11 @@ let link_program vroots library_paths isLibrary allModulepaths dllManifest expor
     in
     try
       get_lines file
-    with FileNotFound ->
+    with FileNotFound _ ->
       try 
         let file = replace_vroot vroots file in
         get_lines file
-      with FileNotFound ->
+      with FileNotFound _ ->
         try
           let rec search_library_paths library_paths file =
             match library_paths with 
@@ -3362,10 +3377,10 @@ let link_program vroots library_paths isLibrary allModulepaths dllManifest expor
                 get_lines search_path
               else
                search_library_paths rest file
-            | [] -> raise FileNotFound
+            | [] -> raise (FileNotFound file)
           in
           search_library_paths library_paths file
-        with FileNotFound ->
+        with FileNotFound _ ->
           failwith ("VeriFast link phase error: could not find .vfmanifest file '" ^ file ^ 
                     "'. Re-verify the module using the -emit_vfmanifest or -emit_dll_vfmanifest option.")
   in
@@ -3525,7 +3540,7 @@ let link_program vroots library_paths isLibrary allModulepaths dllManifest expor
       match exports with
         [] -> (impls, mods)
       | exportPath::exports ->
-        let lines = try read_file_lines exportPath with FileNotFound -> failwith ("Could not find export manifest file '" ^ exportPath ^ "'") in
+        let lines = try read_file_lines exportPath with FileNotFound _ -> failwith ("Could not find export manifest file '" ^ exportPath ^ "'") in
         let rec iter' (impls, mods) lines =
           match lines with
             [] -> (impls, mods)

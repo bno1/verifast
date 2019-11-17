@@ -80,7 +80,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     | Open (l, target, g, targs, ps0, ps1, coef) -> []
     | Close (l, target, g, targs, ps0, ps1, coef) -> []
     | ReturnStmt (l, e) -> (match e with None -> [] | Some e -> expr_assigned_variables e)
-    | WhileStmt (l, e, p, d, ss) -> expr_assigned_variables e @ block_assigned_variables ss
+    | WhileStmt (l, e, p, d, ss, final_ss) -> expr_assigned_variables e @ block_assigned_variables ss @ block_assigned_variables final_ss
     | Throw (l, e) -> expr_assigned_variables e
     | TryCatch (l, body, catches) -> block_assigned_variables body @ flatmap (fun (l, t, x, body) -> block_assigned_variables body) catches
     | TryFinally (l, body, lf, finally) -> block_assigned_variables body @ block_assigned_variables finally
@@ -308,6 +308,11 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       | Lemma(true, _) -> static_error l "Lemma functions marked nonghost_callers_only cannot be autolemmas." None
       | Lemma(false, _) -> ()
     end;
+    let functype_opt =
+      match functype_opt with
+        None when body <> None && fn = "main" -> Some ("main_full", [], [(l, current_module_name)])
+      | _ -> functype_opt
+    in
     let functype_opt =
       match functype_opt with
         None -> None
@@ -1088,7 +1093,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       (match patopt with None -> () | Some(p) -> pat_expr_mark_addr_taken p locals); 
       cont locals
     | SwitchStmt(_, e, cls) -> expr_mark_addr_taken e locals; List.iter (fun cl -> match cl with SwitchStmtClause(_, e, ss) -> (expr_mark_addr_taken e locals); stmts_mark_addr_taken ss locals (fun _ -> ()); | SwitchStmtDefaultClause(_, ss) -> stmts_mark_addr_taken ss locals (fun _ -> ())) cls; cont locals
-    | WhileStmt(_, e1, loopspecopt, e2, ss) -> 
+    | WhileStmt(_, e1, loopspecopt, e2, ss, final_ss) -> 
         expr_mark_addr_taken e1 locals; 
         (match e2 with None -> () | Some(e2) -> expr_mark_addr_taken e2 locals);
         (match loopspecopt with 
@@ -1096,7 +1101,8 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         | Some(LoopSpec(a1, a2)) -> ass_mark_addr_taken a1 locals; ass_mark_addr_taken a2 locals;
         | None -> ()
         );
-        stmts_mark_addr_taken ss locals (fun _ -> cont locals); 
+        stmts_mark_addr_taken ss locals $. fun locals ->
+        stmts_mark_addr_taken final_ss locals cont
     | SplitFractionStmt(_, _, _, pats, eopt) -> 
         List.iter (fun p -> pat_expr_mark_addr_taken p locals) pats;
         (match eopt with None -> () | Some(e) -> expr_mark_addr_taken e locals); 
@@ -1178,7 +1184,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     | Open _ | Close _ -> []
     | ReturnStmt(_, Some(e)) -> expr_address_taken e
     | ReturnStmt(_, None) -> []
-    | WhileStmt(_, e1, loopspecopt, e2, ss) -> (expr_address_taken e1) @ (match e2 with None -> [] | Some(e2) -> expr_address_taken e2) @ (List.flatten (List.map (fun s -> stmt_address_taken s) ss))
+    | WhileStmt(_, e1, loopspecopt, e2, ss, final_ss) -> (expr_address_taken e1) @ (match e2 with None -> [] | Some(e2) -> expr_address_taken e2) @ (List.flatten (List.map (fun s -> stmt_address_taken s) ss)) @ flatmap (stmt_address_taken) final_ss
     | BlockStmt(_, decls, ss, _, _) -> (List.flatten (List.map (fun s -> stmt_address_taken s) ss))
     | LabelStmt _ | GotoStmt _ | NoopStmt _ | Break _ | Throw _ | TryFinally _ | TryCatch _ -> []
     | _ -> []
@@ -1944,7 +1950,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       let arraySize = ctxt#mk_mul n (sizeof ls elemTp) in
       check_overflow lmul int_zero_term arraySize (max_unsigned_term ptr_rank) (fun l t -> assert_term t h env l);
       let resultType = PtrType elemTp in
-      let result = get_unique_var_symb (match xo with None -> "array" | Some x -> x) resultType in
+      let result = get_unique_var_symb_non_ghost (match xo with None -> "array" | Some x -> x) resultType in
       let cont h = cont h env result in
       branch
         begin fun () ->
@@ -1969,7 +1975,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       if pure then static_error l "Cannot call a non-pure function from a pure context." None;
       let t = check_pure_type (pn,ilist) tparams te in
       let resultType = PtrType t in
-      let result = get_unique_var_symb (match xo with None -> (match t with StructType tn -> tn | _ -> "address") | Some x -> x) resultType in
+      let result = get_unique_var_symb_non_ghost (match xo with None -> (match t with StructType tn -> tn | _ -> "address") | Some x -> x) resultType in
       let cont h = cont h env result in
       branch
         begin fun () ->

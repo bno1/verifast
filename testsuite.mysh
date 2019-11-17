@@ -10,7 +10,7 @@ cd bin
 cd ..
 cd examples
   cd jayanti
-    verifast threading.o atomics.o jayanti.c client.c
+    verifast threading.o popl20_prophecies.o atomics.c jayanti.c client.c
   cd ..
   cd abstract_io
     mysh < io2.mysh
@@ -29,7 +29,7 @@ cd examples
     verifast -prover z3v4.5 -disable_overflow_check -shared ghost_counters.c monitors.o readers_writers.c 
   cd ..
   cd splitcounter
-    verifast -prover redux -c -disable_overflow_check splitcounter.c
+    verifast atomics.o ghost_lists.c splitcounter.c client.c
   cd ..
   cd crypto_ccs
     call crypto_ccs.mysh
@@ -74,7 +74,7 @@ cd examples
     verifast -c ticket_lock.c
     verifast_both -c gotsmanlock.c
     verifast_both -c spinlock.c
-    verifast -prover z3v4.5 -c concurrentqueue.c
+    verifast -c concurrentqueue.c
     verifast -c -prover z3v4.5 concurrentstack.c
     verifast -c concurrentstackclient.c
     verifast -prover z3v4.5 -allow_assume threading.o atomics.o concurrentqueue.c concurrentqueue_client.c
@@ -177,7 +177,7 @@ cd examples
   verifast_both -c limits.c
   verifast_both map.c
   cd mcas
-    verifast_both -c -disable_overflow_check rdcss.c mcas.c mcas_client.c
+    call mcas.mysh
   cd ..
   verifast_both -c mergesort_and_binarysearch.c
   cd MockKernel
