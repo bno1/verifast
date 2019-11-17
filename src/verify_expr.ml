@@ -204,7 +204,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     let env0_0 = List.map (function (p, t) -> (p, get_unique_var_symb p t)) xmap0 in
     let currentThreadEnv = [(current_thread_name, get_unique_var_symb current_thread_name current_thread_type)] in
     let env0 = currentThreadEnv @ env0_0 @ cenv0 in
-    produce_asn tpenv0 [] [] env0 pre0 real_unit None None (fun h _ env0 ->
+    produce_asn tpenv0 [] [] env0 [] pre0 real_unit None None (fun h _ env0 _ ->
       let bs = zip2 xmap env0_0 in
       let env = currentThreadEnv @ List.map (fun ((p, _), (p0, v)) -> (p, v)) bs @ env00 in
       begin match pre with
@@ -219,7 +219,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           | Some t -> let result = get_unique_var_symb "result" t in (("result", result)::env, ("result", result)::env0)
         in
         execute_branch begin fun () ->
-          produce_asn tpenv h [] env post real_unit None None (fun h _ _ ->
+          produce_asn tpenv h [] env [] post real_unit None None (fun h _ _ _ ->
             consume_asn rules tpenv0 h [] env0 post0 true real_unit (fun _ h _ env0 _ ->
               check_leaks h env0 l (msg ^ "Implementation leaks heap chunks.")
             )
@@ -228,7 +228,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         epost |> List.iter begin fun (exceptp, epost) ->
           if not (is_unchecked_exception_type exceptp) then
             execute_branch begin fun () ->
-              produce_asn tpenv h [] env epost real_unit None None $. fun h _ _ ->
+              produce_asn tpenv h [] env [] epost real_unit None None $. fun h _ _ _ ->
               let rec handle_exception handlers =
                 match handlers with
                 | [] -> assert_false h env l ("Potentially unhandled exception " ^ (string_of_type exceptp) ^ ".") None 
@@ -1191,7 +1191,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
   
   let nonempty_pred_symbs = List.map (fun (_, (_, (_, _, _, _, symb, _, _))) -> symb) field_pred_map
   
-  let eval_non_pure_cps ev is_ghost_expr ((h, env) as state) env e cont =
+  let eval_non_pure_cps ev is_ghost_expr ((h, env, secrets) as state) env e cont =
     let assert_term = if is_ghost_expr then None else Some (fun l t msg url -> assert_term t h env l msg url) in
     let read_field =
       (fun l t f -> read_field h env l t f),
@@ -1481,12 +1481,12 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     consume_chunk rules h [] [] [] l (call_perm__symb, true) [] real_unit dummypat (Some 1) [TermPat t] $. fun _ h _ _ _ _ _ _ ->
     cont h
 
-  let verify_call funcmap eval_h l (pn, ilist) xo g targs pats (callee_tparams, tr, ps, funenv, pre, post, epost, terminates, v) pure is_upcall target_class leminfo sizemap h tparams tenv ghostenv env cont econt =
+  let verify_call funcmap eval_h l (pn, ilist) xo g targs pats (callee_tparams, tr, ps, funenv, pre, post, epost, terminates, v) pure is_upcall target_class leminfo sizemap h tparams tenv ghostenv env secrets cont econt =
     let check_expr_t (pn,ilist) tparams tenv e tp = check_expr_t_core functypemap funcmap classmap interfmap (pn,ilist) tparams tenv (Some pure) e tp in
-    let eval_h h env pat cont =
+    let eval_h h env secrets pat cont =
       match pat with
-        SrcPat (LitPat e) -> if not pure then check_ghost ghostenv l e; eval_h h env e cont
-      | TermPat t -> cont h env t
+        SrcPat (LitPat e) -> if not pure then check_ghost ghostenv l e; eval_h h env secrets e cont
+      | TermPat t -> cont h env secrets t
     in
     let tpenv =
       match zip callee_tparams targs with
@@ -1495,15 +1495,15 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     in
     let ys: string list = List.map (function (p, t) -> p) ps in
     begin fun cont ->
-      let rec iter h env ts pats ps =
+      let rec iter h env secrets ts pats ps =
         match pats, ps with
-          [], [] -> cont h env (List.rev ts)
+          [], [] -> cont h env secrets (List.rev ts)
         | pats, [("varargs", _)] ->
           let rec mk_varargs h env args pats =
             match pats with
               SrcPat (LitPat e) ::pats ->
               let (w, tp) = check_expr (pn,ilist) tparams tenv (Some pure) e in
-              eval_h h env (SrcPat (LitPat w)) $. fun h env t ->
+              eval_h h env secrets (SrcPat (LitPat w)) $. fun h env secrets t ->
               let arg =
                 let tp_promoted =
                   match tp with
@@ -1519,19 +1519,19 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               mk_varargs h env (arg::args) pats
             | [] ->
               let varargs = mk_list (InductiveType ("vararg", [])) (List.rev args) in
-              cont h env (List.rev (varargs::ts))
+              cont h env secrets (List.rev (varargs::ts))
           in
           mk_varargs h env [] pats
         | SrcPat (LitPat e)::pats, (x, tp0)::ps ->
           let tp = instantiate_type tpenv tp0 in
-          eval_h h env (SrcPat (LitPat (box (check_expr_t (pn,ilist) tparams tenv e tp) tp tp0))) $. fun h env t ->
-          iter h env (t::ts) pats ps
+          eval_h h env secrets (SrcPat (LitPat (box (check_expr_t (pn,ilist) tparams tenv e tp) tp tp0))) $. fun h env secrets t ->
+          iter h env secrets (t::ts) pats ps
         | TermPat t::pats, _::ps ->
-          iter h env (t::ts) pats ps
+          iter h env secrets (t::ts) pats ps
         | _ -> static_error l "Incorrect number of arguments." None
       in
-      iter h env [] pats ps
-    end $. fun h env ts ->
+      iter h env secrets [] pats ps
+    end $. fun h env secrets ts ->
     let Some env' = zip ys ts in
     let _ = if file_type path = Java && match try_assoc "this" ps with Some ObjType _ -> true | _ -> false then 
       let this_term = List.assoc "this" env' in
@@ -1637,6 +1637,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
                   else
                     static_error l "A lemma can call only preceding lemmas or itself." None
         in
+        (* TODO add secrets here!! *)
         let r, env'' =
           match tr with
             None -> real_unit, env' (* any term will do *)
@@ -1652,19 +1653,19 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
             r, env''
         in
         execute_branch begin fun () ->
-          produce_asn tpenv h ghostenv' env'' post real_unit None None $. fun h _ _ ->
+          produce_asn tpenv h ghostenv' env'' [] post real_unit None None $. fun h _ _ _ ->
           with_context PopSubcontext $. fun () ->
-          cont h env r
+          cont h env secrets r
         end;
         begin match epost with
           None -> ()
         | Some(epost) ->
           epost |> List.iter begin fun (tp, post) ->
             execute_branch $. fun () ->
-            produce_asn tpenv h ghostenv' env' post real_unit None None $. fun h _ _ ->
+              produce_asn tpenv h ghostenv' env' [] post real_unit None None $. fun h _ _ _ ->
             with_context PopSubcontext $. fun () ->
             let e = get_unique_var_symb_ "excep" tp false in
-            econt l h env tp e
+            econt l h env secrets tp e
           end
         end;
         success()
@@ -1733,20 +1734,20 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     | _ -> true
 
   (* TODO add secrets to cont? *)
-  let rec verify_expr readonly (pn,ilist) tparams pure leminfo funcmap sizemap tenv ghostenv h env xo e cont econt =
+  let rec verify_expr readonly (pn,ilist) tparams pure leminfo funcmap sizemap tenv ghostenv h env secrets xo e cont econt =
     let (envReadonly, heapReadonly) = readonly in
-    let verify_expr readonly h env xo e cont = verify_expr readonly (pn,ilist) tparams pure leminfo funcmap sizemap tenv ghostenv h env xo e (fun h env v -> cont h env v) econt in
+    let verify_expr readonly h env secrets xo e cont = verify_expr readonly (pn,ilist) tparams pure leminfo funcmap sizemap tenv ghostenv h env secrets xo e (fun h env secrets v -> cont h env secrets v) econt in
     let check_expr (pn,ilist) tparams tenv e = check_expr_core functypemap funcmap classmap interfmap (pn,ilist) tparams tenv (Some pure) e in
     let check_expr_t (pn,ilist) tparams tenv e tp = check_expr_t_core functypemap funcmap classmap interfmap (pn,ilist) tparams tenv (Some pure) e tp in
     let l = expr_loc e in
     let has_env_effects () = if language = CLang && envReadonly then static_error l "This potentially side-effecting expression is not supported in this position, because of C's unspecified evaluation order" (Some "illegalsideeffectingexpression") in
     let has_heap_effects () = if language = CLang && heapReadonly then static_error l "This potentially side-effecting expression is not supported in this position, because of C's unspecified evaluation order" (Some "illegalsideeffectingexpression") in
-    let eval_h h env e cont = verify_expr (true, true) h env None e cont in
-    let eval_h_core ro h env e cont = if not pure then check_ghost ghostenv l e; verify_expr ro h env None e cont in
-    let rec evhs h env es cont =
+    let eval_h h env secrets e cont = verify_expr (true, true) h env secrets None e cont in
+    let eval_h_core ro h env secrets e cont = if not pure then check_ghost ghostenv l e; verify_expr ro h env secrets None e cont in
+    let rec evhs h env secrets es cont =
       match es with
-        [] -> cont h env []
-      | e::es -> eval_h h env e (fun h env v -> evhs h env es (fun h env vs -> cont h env (v::vs))) 
+        [] -> cont h env secrets []
+      | e::es -> eval_h h env secrets e (fun h env secrets v -> evhs h env secrets es (fun h env secrets vs -> cont h env secrets (v::vs)))
     in 
     let check_assign l x =
       if pure && not (List.mem x ghostenv) then static_error l "Cannot assign to non-ghost variable in pure context." None
@@ -1761,80 +1762,80 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         end 
       | Some tp -> (tp, None) 
     in
-    let update_local_or_global h env tpx x symb w cont =
+    let update_local_or_global h env secrets tpx x symb w cont =
       match symb with
-        None -> has_env_effects(); cont h (update env x w)
+        None -> has_env_effects(); cont h (update env x w) secrets
       | Some(symb) -> 
           has_heap_effects();
           get_points_to' h symb tpx l $. fun h coef _ ->
           if not (definitely_equal coef real_unit) then assert_false h env l "Writing to a global variable requires full permission." None;
           produce_points_to_chunk l h tpx real_unit symb w $. fun h ->
-          cont h env
+          cont h env secrets
     in
     let check_correct h xo g targs args (lg, callee_tparams, tr, ps, funenv, pre, post, epost, terminates, v) is_upcall target_class cont =
       (* check_expr is needed here because args are not typechecked yet. Why does check_expr_t not check the arguments of a WFunCall? *)
       let at_most_one_unsafe args = (List.length (List.filter (fun a -> let (w, t) = check_expr (pn,ilist) tparams tenv a in not (is_safe_expr w)) args)) <= 1 in
-      let eval_h = if language == CLang && not heapReadonly &&  (List.length args = 1 || at_most_one_unsafe args) then (fun h env e cont -> eval_h_core (true, false) h env e cont) else eval_h in
+      let eval_h = if language == CLang && not heapReadonly &&  (List.length args = 1 || at_most_one_unsafe args) then (fun h env secrets e cont -> eval_h_core (true, false) h env secrets e cont) else eval_h in
       let pre = match pre with ExprAsn (la, False _) when la == lg -> ExprAsn (lg, False dummy_loc) | _ -> pre in
-      verify_call funcmap eval_h l (pn, ilist) xo g targs (List.map (fun e -> SrcPat (LitPat e)) args) (callee_tparams, tr, ps, funenv, pre, post, epost, terminates, v) pure is_upcall target_class leminfo sizemap h tparams tenv ghostenv env cont econt
+      verify_call funcmap eval_h l (pn, ilist) xo g targs (List.map (fun e -> SrcPat (LitPat e)) args) (callee_tparams, tr, ps, funenv, pre, post, epost, terminates, v) pure is_upcall target_class leminfo sizemap h tparams tenv ghostenv env secrets cont econt
     in
     let new_array h env l elem_tp length elems =
       let at = get_unique_var_symb (match xo with None -> "array" | Some x -> x) (ArrayType elem_tp) in
       let (_, _, _, _, array_slice_symb, _, _) = List.assoc "java.lang.array_slice" predfammap in
       assume (ctxt#mk_not (ctxt#mk_eq at (ctxt#mk_intlit 0))) $. fun () ->
       assume (ctxt#mk_eq (ctxt#mk_app arraylength_symbol [at]) length) $. fun () ->
-      cont (Chunk ((array_slice_symb, true), [elem_tp], real_unit, [at; ctxt#mk_intlit 0; length; elems], None)::h) env at
+      cont (Chunk ((array_slice_symb, true), [elem_tp], real_unit, [at; ctxt#mk_intlit 0; length; elems], None)::h) env secrets at
     in
-    let lhs_to_lvalue h env lhs cont =
+    let lhs_to_lvalue h env secrets lhs cont =
       match lhs with
-        WVar (l, x, scope) -> cont h env (LValues.Var (l, x, scope))
+        WVar (l, x, scope) -> cont h env secrets (LValues.Var (l, x, scope))
       | WRead (l, w, fparent, fname, tp, fstatic, fvalue, fghost) ->
         let (_, (_, _, _, _, f_symb, _, _)) = List.assoc (fparent, fname) field_pred_map in
         begin fun cont ->
           if fstatic then
-            cont h env None
+            cont h env secrets None
           else
-            eval_h h env w (fun h env target -> cont h env (Some target))
-        end $. fun h env target ->
-        cont h env (LValues.Field (l, target, fparent, fname, tp, fvalue, fghost, f_symb))
+            eval_h h env secrets w (fun h env secrets target -> cont h env secrets (Some target))
+        end $. fun h env secrets target ->
+        cont h env secrets (LValues.Field (l, target, fparent, fname, tp, fvalue, fghost, f_symb))
       | WReadArray (l, arr, elem_tp, i) ->
-        eval_h h env arr $. fun h env arr ->
-        eval_h h env i $. fun h env i ->
-        cont h env (LValues.ArrayElement (l, arr, elem_tp, i))
+        eval_h h env secrets arr $. fun h env secrets arr ->
+        eval_h h env secrets i $. fun h env secrets i ->
+        cont h env secrets (LValues.ArrayElement (l, arr, elem_tp, i))
       | WDeref (l, w, pointeeType) ->
-        eval_h h env w $. fun h env target ->
-        cont h env (LValues.Deref (l, target, pointeeType))
+        eval_h h env secrets w $. fun h env secrets target ->
+        cont h env secrets (LValues.Deref (l, target, pointeeType))
       | _ -> static_error (expr_loc lhs) "Cannot assign to this expression." None
     in
-    let read_lvalue h env lvalue cont =
+    let read_lvalue h env secrets lvalue cont =
       match lvalue with
         LValues.Var (l, x, scope) ->
-        eval_h h env (WVar (l, x, scope)) cont
+        eval_h h env secrets (WVar (l, x, scope)) cont
       | LValues.Field (l, target, fparent, fname, tp, fvalue, fghost, f_symb) ->
         begin match target with
           Some target ->
           consume_chunk rules h [] [] [] l (f_symb, true) [] real_unit dummypat (Some 1) [TermPat target; dummypat] $. fun chunk h _ [_; value] _ _ _ _ ->
-          cont (chunk::h) env value
+          cont (chunk::h) env secrets value
         | None ->
           consume_chunk rules h [] [] [] l (f_symb, true) [] real_unit dummypat (Some 0) [dummypat] $. fun chunk h _ [value] _ _ _ _ ->
-          cont (chunk::h) env value
+          cont (chunk::h) env secrets value
         end
       | LValues.ArrayElement (l, arr, elem_tp, i) when language = Java ->
         let pats = [TermPat arr; TermPat i; SrcPat DummyPat] in
         consume_chunk rules h [] [] [] l (array_element_symb(), true) [elem_tp] real_unit dummypat (Some 2) pats $. fun chunk h _ [_; _; value] _ _ _ _ ->
-        cont (chunk::h) env value
+        cont (chunk::h) env secrets value
       | LValues.ArrayElement (l, arr, elem_tp, i) when language = CLang ->
-        cont h env (read_c_array h env l arr i elem_tp)
+        cont h env secrets (read_c_array h env l arr i elem_tp)
       | LValues.Deref (l, target, pointeeType) ->
         consume_points_to_chunk rules h [] [] [] l pointeeType real_unit dummypat target dummypat $. fun chunk h _ value _ _ _ ->
-        cont (chunk::h) env value
+        cont (chunk::h) env secrets value
     in
-    let rec write_lvalue h env lvalue value cont =
+    let rec write_lvalue h env secrets lvalue value cont =
       match lvalue with
         LValues.Var (l, x, _) ->
         check_assign l x;
         let (tpx, symb) = vartp l x in
-        update_local_or_global h env tpx x symb value cont
+        update_local_or_global h env secrets tpx x symb value cont
       | LValues.Field (l, target, fparent, fname, tp, fvalue, fghost, f_symb) ->
         has_heap_effects();
         if pure && fghost = Real then static_error l "Cannot write in a pure context" None;
@@ -1845,7 +1846,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         in
         let pats = List.map (fun t -> TermPat t) targets @ [dummypat] in
         consume_chunk rules h [] [] [] l (f_symb, true) [] real_unit real_unit_pat (Some 1) pats $. fun _ h _ _ _ _ _ _ ->
-        cont (Chunk ((f_symb, true), [], real_unit, targets @ [value], None)::h) env
+        cont (Chunk ((f_symb, true), [], real_unit, targets @ [value], None)::h) env secrets
       | LValues.ArrayElement (l, arr, elem_tp, i) when language = Java ->
         has_heap_effects();
         if pure then static_error l "Cannot write in a pure context." None;
@@ -1853,9 +1854,9 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           None -> 
           let pats = [TermPat arr; TermPat i; SrcPat DummyPat] in
           consume_chunk rules h [] [] [] l (array_element_symb(), true) [elem_tp] real_unit real_unit_pat (Some 2) pats $. fun _ h _ _ _ _ _ _ ->
-          cont (Chunk ((array_element_symb(), true), [elem_tp], real_unit, [arr; i; value], None)::h) env
+          cont (Chunk ((array_element_symb(), true), [elem_tp], real_unit, [arr; i; value], None)::h) env secrets
         | Some h ->
-          cont h env
+          cont h env secrets
         end
       | LValues.ArrayElement (l, arr, elem_tp, i) when language = CLang ->
         has_heap_effects();
@@ -1864,7 +1865,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           let target = ctxt#mk_add arr (ctxt#mk_mul i (sizeof l elem_tp)) in
           consume_points_to_chunk rules h [] [] [] l elem_tp real_unit real_unit_pat target dummypat $. fun _ h _ _ _ _ _ ->
           produce_points_to_chunk l h elem_tp real_unit target value $. fun h ->
-          cont h env
+          cont h env secrets
         in
         let write_integer__array_element () =
           match int_rank_and_signedness elem_tp with
@@ -1889,7 +1890,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               let (_, _, _, _, update_symb) = List.assoc "update" purefuncmap in
               let updated = mk_app update_symb [i; apply_conversion (provertype_of_type elem_tp) ProverInductive value; vs] in
               assume (ctxt#mk_eq (mk_length updated) count') $. fun () ->
-              cont (Chunk (integers__symb, [], real_unit, [arr'; size'; signed'; count'; updated], None)::h) env
+              cont (Chunk (integers__symb, [], real_unit, [arr'; size'; signed'; count'; updated], None)::h) env secrets
             | None ->
               consume_elem()
             end
@@ -1914,7 +1915,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           let (_, _, _, _, update_symb) = List.assoc "update" purefuncmap in
           let updated = mk_app update_symb [i; apply_conversion (provertype_of_type elem_tp) ProverInductive value; vs] in
           assume (ctxt#mk_eq (mk_length updated) n) $. fun () ->
-          cont (Chunk (arrayPredSymb1, [], real_unit, [a; n; updated], None) :: h) env
+          cont (Chunk (arrayPredSymb1, [], real_unit, [a; n; updated], None) :: h) env secrets
         | None ->
           consume_elem ()
         end
@@ -1923,21 +1924,21 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         if pure then static_error l "Cannot write in a pure context." None;
         consume_points_to_chunk rules h [] [] [] l pointeeType real_unit real_unit_pat target dummypat $. fun _ h _ _ _ _ _ ->
         produce_points_to_chunk l h pointeeType real_unit target value $. fun h ->
-        cont h env
+        cont h env secrets
     in
-    let rec execute_assign_op_expr h env lhs get_values cont =
-      lhs_to_lvalue h env lhs $. fun h env lvalue ->
-      read_lvalue h env lvalue $. fun h env v1 ->
-      get_values h env v1 $. fun h env result_value new_value ->
-      write_lvalue h env lvalue new_value $. fun h env ->
-      cont h env result_value
+    let rec execute_assign_op_expr h env secrets lhs get_values cont =
+      lhs_to_lvalue h env secrets lhs $. fun h env secrets lvalue ->
+      read_lvalue h env secrets lvalue $. fun h env secrets v1 ->
+      get_values h env secrets v1 $. fun h env secrets result_value new_value ->
+      write_lvalue h env secrets lvalue new_value $. fun h env secrets ->
+      cont h env secrets result_value
     in
     match e with
-    | Upcast (w, _, _) -> eval_h_core readonly h env w cont
+    | Upcast (w, _, _) -> eval_h_core readonly h env secrets w cont
     | CastExpr (lc, ManifestTypeExpr (_, tp), (WFunCall (l, "malloc", [], [SizeofExpr (ls, te)]) as e)) ->
       let t = check_pure_type (pn,ilist) tparams te in
       expect_type lc (Some pure) (PtrType t) tp;
-      verify_expr readonly h env xo e cont
+      verify_expr readonly h env secrets xo e cont
     | WFunCall (l, "malloc", [], [Operation (lmul, Mul, ([e; SizeofExpr (ls, te)] | [SizeofExpr (ls, te); e]))]) ->
       if pure then static_error l "Cannot call a non-pure function from a pure context." None;
       let elemTp = check_pure_type (pn,ilist) tparams te in
@@ -1946,12 +1947,12 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         Int (_, _) -> ()
       | _ -> static_error (expr_loc e) "Expression of integer type expected" None
       end;
-      eval_h h env w $. fun h env n ->
+      eval_h h env secrets w $. fun h env secrets n ->
       let arraySize = ctxt#mk_mul n (sizeof ls elemTp) in
       check_overflow lmul int_zero_term arraySize (max_unsigned_term ptr_rank) (fun l t -> assert_term t h env l);
       let resultType = PtrType elemTp in
       let result = get_unique_var_symb_non_ghost (match xo with None -> "array" | Some x -> x) resultType in
-      let cont h = cont h env result in
+      let cont h = cont h env secrets result in
       branch
         begin fun () ->
           assume_eq result int_zero_term $. fun () ->
@@ -1976,7 +1977,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       let t = check_pure_type (pn,ilist) tparams te in
       let resultType = PtrType t in
       let result = get_unique_var_symb_non_ghost (match xo with None -> (match t with StructType tn -> tn | _ -> "address") | Some x -> x) resultType in
-      let cont h = cont h env result in
+      let cont h = cont h env secrets result in
       branch
         begin fun () ->
           assume_eq result (ctxt#mk_intlit 0) $. fun () ->
@@ -2003,7 +2004,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       let (_, gh, fttparams, rt, ftxmap, xmap, pre, post, terminates, ft_predfammaps) = List.assoc ftn functypemap in
       if pure && gh = Real then static_error l "Cannot call regular function pointer in a pure context." None;
       let check_call targs h args0 cont =
-        verify_call funcmap eval_h l (pn, ilist) xo None targs (TermPat fterm::List.map (fun arg -> TermPat arg) args0 @ List.map (fun e -> SrcPat (LitPat e)) args) (fttparams, rt, (("this", PtrType Void)::ftxmap @ xmap), [], pre, post, None, terminates, Public) pure true None leminfo sizemap h tparams tenv ghostenv env cont (fun _ _ _ _ -> assert false)
+        verify_call funcmap eval_h l (pn, ilist) xo None targs (TermPat fterm::List.map (fun arg -> TermPat arg) args0 @ List.map (fun e -> SrcPat (LitPat e)) args) (fttparams, rt, (("this", PtrType Void)::ftxmap @ xmap), [], pre, post, None, terminates, Public) pure true None leminfo sizemap h tparams tenv ghostenv env secrets cont (fun _ _ _ _ -> assert false)
       in
       let consume_call_perm h cont =
         if should_terminate leminfo then begin
@@ -2027,8 +2028,8 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           let targs = List.map (fun _ -> InferredType (object end, ref Unconstrained)) fttparams in
           consume_chunk rules h [] [] [] l (predsymb, true) targs real_unit dummypat inputParamCount pats $. fun (Chunk (_, targs, _, _, _) as c) h coef (_::args) _ _ _ _ ->
           consume_call_perm h $. fun h ->
-          check_call targs h args $. fun h env retval ->
-          cont (c::h) env retval
+          check_call targs h args $. fun h env secrets retval ->
+          cont (c::h) env secrets retval
         | Ghost ->
           let [(_, (_, _, _, _, predsymb, inputParamCount, _))] = ft_predfammaps in
           let targs = List.map (fun _ -> InferredType (object end, ref Unconstrained)) fttparams in
@@ -2057,7 +2058,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
             Some (Some (_, rank)), RealMethodInfo (Some rank') -> rank < rank'
           | _ -> true
         in
-        check_correct h None None [] args (lm, [], None, xmap, ["this", obj], pre, post, Some(epost), terminates, Static) is_upcall (Some cn) (fun h env _ -> cont h env obj)
+        check_correct h None None [] args (lm, [], None, xmap, ["this", obj], pre, post, Some(epost), terminates, Static) is_upcall (Some cn) (fun h env secrets _ -> cont h env secrets obj)
       | _ -> static_error l "Multiple matching overloads" None
       end
     | WMethodCall (l, tn, m, pts, args, fb) when m <> "getClass" ->
@@ -2113,7 +2114,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     | NewArray(l, tp, e) ->
       let elem_tp = check_pure_type (pn,ilist) tparams tp in
       let w = check_expr_t (pn,ilist) tparams tenv e intType in
-      eval_h h env w $. fun h env lv ->
+      eval_h h env secrets w $. fun h env secrets lv ->
       if not (ctxt#query (ctxt#mk_le (ctxt#mk_intlit 0) lv)) then assert_false h env l "array length might be negative" None;
       let elems = get_unique_var_symb "elems" (InductiveType ("list", [elem_tp])) in
       let (_, _, _, _, all_eq_symb) = List.assoc "all_eq" purefuncmap in
@@ -2124,7 +2125,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     | NewArrayWithInitializer(l, tp, es) when language = Java ->
       let elem_tp = check_pure_type (pn,ilist) tparams tp in
       let ws = List.map (fun e -> check_expr_t (pn,ilist) tparams tenv e elem_tp) es in
-      evhs h env ws $. fun h env vs ->
+      evhs h env secrets ws $. fun h env secrets vs ->
       let elems = mk_list elem_tp vs in
       let lv = ctxt#mk_intlit (List.length vs) in
       new_array h env l elem_tp lv elems
@@ -2136,7 +2137,7 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         let (_, _, _, _, chars_of_string_symb) = List.assoc "java.lang.charsOfString" purefuncmap in
         assume_neq value (ctxt#mk_intlit 0) $. fun () ->
         assume_eq (mk_app chars_of_string_symb [value]) (mk_char_list_of_c_string (String.length s) s) $. fun () ->
-        cont h env value
+        cont h env secrets value
       | _ ->
         if unloadable then static_error l "The use of string literals as expressions in unloadable modules is not supported. Put the string literal in a named global array variable instead." None;
         let (_, _, _, _, string_symb, _, _) = List.assoc "string" predfammap in
@@ -2145,84 +2146,84 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         let coef = get_dummy_frac_term () in
         assume (ctxt#mk_not (ctxt#mk_eq value (ctxt#mk_intlit 0))) $. fun () ->
         assume (ctxt#mk_eq (mk_char_list_of_c_string (String.length s) s) cs) $. fun () ->
-        cont (Chunk ((string_symb, true), [], coef, [value; cs], None)::h) env value
+        cont (Chunk ((string_symb, true), [], coef, [value; cs], None)::h) env secrets value
       end
     | WOperation (l, Add, [e1; e2], ObjType "java.lang.String") ->
-      eval_h h env e1 $. fun h env v1 ->
-      eval_h h env e2 $. fun h env v2 ->
+      eval_h h env secrets e1 $. fun h env secrets v1 ->
+      eval_h h env secrets e2 $. fun h env secrets v2 ->
       let value = get_unique_var_symb "string" (ObjType "java.lang.String") in
       assume_neq value (ctxt#mk_intlit 0) $. fun () ->
-      cont h env value
+      cont h env secrets value
     | WRead (l, e, fparent, fname, frange, false (* is static? *), fvalue, fghost) ->
-      eval_h h env e $. fun h env t ->
+      eval_h h env secrets e $. fun h env secrets t ->
       begin match frange with
         StaticArrayType (elemTp, elemCount) ->
-        cont h env (field_address l t fparent fname)
+        cont h env secrets (field_address l t fparent fname)
       | _ ->
       let (_, (_, _, _, _, f_symb, _, _)) = List.assoc (fparent, fname) field_pred_map in
       begin match lookup_points_to_chunk_core h f_symb t with
         None -> (* Try the heavyweight approach; this might trigger a rule (i.e. an auto-open or auto-close) and rewrite the heap. *)
         get_points_to h t f_symb l $. fun h coef v ->
-        cont (Chunk ((f_symb, true), [], coef, [t; v], None)::h) env v
-      | Some v -> cont h env v
+        cont (Chunk ((f_symb, true), [], coef, [t; v], None)::h) env secrets v
+      | Some v -> cont h env secrets v
       end
       end
     | WRead (l, _, fparent, fname, frange, true (* is static? *), fvalue, fghost) when ! fvalue = None || ! fvalue = Some None->
       let (_, (_, _, _, _, f_symb, _, _)) = List.assoc (fparent, fname) field_pred_map in
       consume_chunk rules h [] [] [] l (f_symb, true) [] real_unit dummypat (Some 0) [dummypat] (fun chunk h coef [field_value] size ghostenv _ _ ->
-        cont (chunk :: h) env field_value)
+        cont (chunk :: h) env secrets field_value)
     | WReadArray (l, arr, elem_tp, i) when language = Java ->
-      eval_h h env arr $. fun h env arr ->
-      eval_h h env i $. fun h env i ->
+      eval_h h env secrets arr $. fun h env secrets arr ->
+      eval_h h env secrets i $. fun h env secrets i ->
       begin match try_read_java_array h env l arr i elem_tp with
         None -> 
           let pats = [TermPat arr; TermPat i; SrcPat DummyPat] in
           consume_chunk rules h [] [] [] l (array_element_symb(), true) [elem_tp] real_unit (SrcPat DummyPat) (Some 2) pats $. fun _ h coef [_; _; elem] _ _ _ _ ->
           let elem_tp = unfold_inferred_type elem_tp in
-          cont (Chunk ((array_element_symb(), true), [elem_tp], coef, [arr; i; elem], None)::h) env elem
+          cont (Chunk ((array_element_symb(), true), [elem_tp], coef, [arr; i; elem], None)::h) env secrets elem
       | Some (v) -> 
         if not pure then assume_bounds v elem_tp;
-        cont h env v
+        cont h env secrets v
       end
     | WReadArray (l, arr, elem_tp, i) when language = CLang ->
-      eval_h h env arr $. fun h env arr ->
-      eval_h h env i $. fun h env i ->
-      cont h env (read_c_array h env l arr i elem_tp)
+      eval_h h env secrets arr $. fun h env secrets arr ->
+      eval_h h env secrets i $. fun h env secrets i ->
+      cont h env secrets (read_c_array h env l arr i elem_tp)
     | WDeref (l, w, pointeeType) as e ->
-      lhs_to_lvalue h env e $. fun h env lvalue ->
-      read_lvalue h env lvalue cont
-    | WOperation (l, Not, [e], t) -> eval_h_core readonly h env e (fun h env v -> cont h env (ctxt#mk_not v))
+      lhs_to_lvalue h env secrets e $. fun h env secrets lvalue ->
+      read_lvalue h env secrets lvalue cont
+    | WOperation (l, Not, [e], t) -> eval_h_core readonly h env secrets e (fun h env secrets v -> cont h env secrets (ctxt#mk_not v))
     | WOperation (l, ((Eq | Neq) as op), [e1; e2], t) ->
       let create_term t1 t2 = match op with Eq -> ctxt#mk_eq t1 t2 | Neq -> ctxt#mk_not (ctxt#mk_eq t1 t2) in
       let e1_safe = is_safe_expr e1 in
       let e2_safe = is_safe_expr e2 in
-      eval_h_core (true, heapReadonly || not e2_safe) h env e1 (fun h env v1 -> eval_h_core (true, heapReadonly || not e1_safe) h env e2 (fun h env v2 -> cont h env (create_term v1 v2)))
+      eval_h_core (true, heapReadonly || not e2_safe) h env secrets e1 (fun h env secrets v1 -> eval_h_core (true, heapReadonly || not e1_safe) h env secrets e2 (fun h env secrets v2 -> cont h env secrets (create_term v1 v2)))
     | WOperation (l, And, [e1; e2], t) ->
-      eval_h h env e1 $. fun h env v1 ->
+      eval_h h env secrets e1 $. fun h env secrets v1 ->
       branch
-        (fun () -> assume v1 (fun () -> eval_h h env e2 cont))
-        (fun () -> assume (ctxt#mk_not v1) (fun () -> cont h env ctxt#mk_false))
+        (fun () -> assume v1 (fun () -> eval_h h env secrets e2 cont))
+        (fun () -> assume (ctxt#mk_not v1) (fun () -> cont h env secrets ctxt#mk_false))
     | WOperation (l, Or, [e1; e2], t) -> 
-      eval_h h env e1 $. fun h env v1 ->
+      eval_h h env secrets e1 $. fun h env secrets v1 ->
       branch
-        (fun () -> assume v1 (fun () -> cont h env ctxt#mk_true))
-        (fun () -> assume (ctxt#mk_not v1) (fun () -> eval_h h env e2 cont))
+        (fun () -> assume v1 (fun () -> cont h env secrets ctxt#mk_true))
+        (fun () -> assume (ctxt#mk_not v1) (fun () -> eval_h h env secrets e2 cont))
     | IfExpr (l, con, e1, e2) ->
-      eval_h_core readonly h env con $. fun h env v ->
+      eval_h_core readonly h env secrets con $. fun h env secrets v ->
       branch
-        (fun () -> assume v (fun () -> eval_h_core readonly h env e1 cont))
-        (fun () -> assume (ctxt#mk_not v) (fun () -> eval_h_core readonly h env e2 cont))
+        (fun () -> assume v (fun () -> eval_h_core readonly h env secrets e1 cont))
+        (fun () -> assume (ctxt#mk_not v) (fun () -> eval_h_core readonly h env secrets e2 cont))
     | WAssignOpExpr (l, lhs, x, rhs, postOp) ->
-      let get_values h env vlhs cont =
-        eval_h h ((x, vlhs)::env) rhs $. fun h env vrhs ->
+      let get_values h env secrets vlhs cont =
+        eval_h h ((x, vlhs)::env) secrets rhs $. fun h env secrets vrhs ->
         assert (List.mem_assoc x env);
         let env = List.remove_assoc x env in
         let r = if postOp then vlhs else vrhs in
-        cont h env r vrhs
+        cont h env secrets r vrhs
       in
-      execute_assign_op_expr h env lhs get_values cont
+      execute_assign_op_expr h env secrets lhs get_values cont
     | AssignExpr (l, lhs, rhs) ->
-      lhs_to_lvalue h env lhs $. fun h env lvalue ->
+      lhs_to_lvalue h env secrets lhs $. fun h env secrets lvalue ->
       let varName = match lhs with WVar (_, x, _) -> Some x | _ -> None in
       let rhsHeapReadOnly =
         (* 'E = ++E + 1' has undefined behavior. This is true for any lvalue E. *)
@@ -2234,11 +2235,11 @@ module VerifyExpr(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         | (WDeref (l, WVar (_, _, LocalVar), _), WFunCall (_, _, _, _)) -> false
         | _ -> true
       in
-      verify_expr (true, rhsHeapReadOnly) h env varName rhs $. fun h env vrhs ->
-      write_lvalue h env lvalue vrhs $. fun h env ->
-      cont h env vrhs
+      verify_expr (true, rhsHeapReadOnly) h env secrets varName rhs $. fun h env secrets vrhs ->
+      write_lvalue h env secrets lvalue vrhs $. fun h env secrets ->
+      cont h env secrets vrhs
     | e ->
-      eval_non_pure_cps (fun (h, env) e cont -> eval_h h env e (fun h env t -> cont (h, env) t)) pure (h, env) env e (fun (h, env) v -> cont h env v)
+      eval_non_pure_cps (fun (h, env, secrets) e cont -> eval_h h env secrets e (fun h env secrets t -> cont (h, env, secrets) t)) pure (h, env, secrets) env e (fun (h, env, secrets) v -> cont h env secrets v)
   
   end
 

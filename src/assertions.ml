@@ -85,21 +85,21 @@ module Assertions(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         (fun () -> assert_expr_split e2 h env l msg url)
     | _ -> with_context (Executing (h, env, expr_loc e, "Consuming expression")) (fun () -> assert_term (eval None env e) h env l msg url; SymExecSuccess)
   
-  let rec evalpat ghost ghostenv env pat tp0 tp cont =
+  let rec evalpat ghost ghostenv env secrets pat tp0 tp cont =
     match pat with
-      LitPat e -> cont ghostenv env (prover_convert_term (eval None env e) tp0 tp)
-    | VarPat (_, x) when not (List.mem_assoc x env) -> let t = get_unique_var_symb_ x tp ghost in cont (x::ghostenv) (update env x (prover_convert_term t tp tp0)) t
-    | VarPat(_, x) -> cont (x :: ghostenv) env (List.assoc x env)
-    | DummyPat -> let t = get_unique_var_symb_ "dummy" tp ghost in cont ghostenv env t
+      LitPat e -> cont ghostenv env secrets (prover_convert_term (eval None env e) tp0 tp)
+    | VarPat (_, x) when not (List.mem_assoc x env) -> let t = get_unique_var_symb_ x tp ghost in cont (x::ghostenv) (update env x (prover_convert_term t tp tp0)) secrets t
+    | VarPat(_, x) -> cont (x :: ghostenv) env secrets (List.assoc x env)
+    | DummyPat -> let t = get_unique_var_symb_ "dummy" tp ghost in cont ghostenv env secrets t
     | WCtorPat (l, i, targs, g, ts0, ts, pats) ->
       let (_, inductive_tparams, ctormap, _, _) = List.assoc i inductivemap in
       let (_, (_, _, _, _, (symb, _))) = List.assoc g ctormap in
-      evalpats ghostenv env pats ts ts0 $. fun ghostenv env vs ->
-      cont ghostenv env (prover_convert_term (ctxt#mk_app symb vs) tp0 tp)
-  and evalpats ghostenv env pats tps0 tps cont =
+      evalpats ghostenv env secrets pats ts ts0 $. fun ghostenv env secrets vs ->
+      cont ghostenv env secrets (prover_convert_term (ctxt#mk_app symb vs) tp0 tp)
+  and evalpats ghostenv env secrets pats tps0 tps cont =
     match (pats, tps0, tps) with
-      ([], [], []) -> cont ghostenv env []
-    | (pat::pats, tp0::tps0, tp::tps) -> evalpat true ghostenv env pat tp0 tp (fun ghostenv env t -> evalpats ghostenv env pats tps0 tps (fun ghostenv env ts -> cont ghostenv env (t::ts)))
+      ([], [], []) -> cont ghostenv env secrets []
+    | (pat::pats, tp0::tps0, tp::tps) -> evalpat true ghostenv env secrets pat tp0 tp (fun ghostenv env secrets t -> evalpats ghostenv env secrets pats tps0 tps (fun ghostenv env secre ts -> cont ghostenv env secrets (t::ts)))
 
   let real_mul l t1 t2 =
     if t1 == real_unit then t2 else if t2 == real_unit then t1 else
@@ -222,8 +222,8 @@ module Assertions(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     | None ->
       static_error l (Printf.sprintf "Cannot produce points-to chunk for variable of type '%s'" (string_of_type type_)) None
 
-  let rec produce_asn_core_with_post tpenv h ghostenv env p coef size_first size_all (assuming: bool) cont_with_post: symexec_result =
-    let cont h env ghostenv = cont_with_post h env ghostenv None in
+  let rec produce_asn_core_with_post tpenv h ghostenv env secrets p coef size_first size_all (assuming: bool) cont_with_post: symexec_result =
+    let cont h env ghostenv secrets = cont_with_post h env ghostenv secrets None in
     let with_context_helper cont =
       match p with
         Sep (_, _, _) -> cont()
@@ -236,30 +236,30 @@ module Assertions(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
     | WPointsTo (l, WRead (lr, e, fparent, fname, frange, fstatic, fvalue, fghost), tp, rhs) ->
       if fstatic then
         let (_, (_, _, _, _, symb, _, _)) = List.assoc (fparent, fname) field_pred_map in
-        evalpat (fghost = Ghost) ghostenv env rhs tp tp $. fun ghostenv env t ->
+        evalpat (fghost = Ghost) ghostenv env secrets rhs tp tp $. fun ghostenv env secrets t ->
         produce_chunk h (symb, true) [] coef (Some 0) [t] None $. fun h ->
-        cont h ghostenv env
+        cont h ghostenv env secrets
       else
         let te = ev e in
-        evalpat (fghost = Ghost) ghostenv env rhs tp tp $. fun ghostenv env t ->
+        evalpat (fghost = Ghost) ghostenv env secrets rhs tp tp $. fun ghostenv env secrets t ->
         assume_field h fparent fname frange fghost te t coef $. fun h ->
-        cont h ghostenv env
+        cont h ghostenv env secrets
     | WPointsTo (l, WReadArray (la, ea, _, ei), tp, rhs) ->
       let a = ev ea in
       let i = ev ei in
-      evalpat false ghostenv env rhs tp tp $. fun ghostenv env t ->
+      evalpat false ghostenv env secrets rhs tp tp $. fun ghostenv env secrets t ->
       let slice = Chunk ((array_element_symb(), true), [instantiate_type tpenv tp], coef, [a; i; t], None) in
-      cont (slice::h) ghostenv env
+      cont (slice::h) ghostenv env secrets
     | WPointsTo (l, WVar (lv, x, GlobalName), tp, rhs) -> 
       let (_, type_, symbn, _) = List.assoc x globalmap in    
-      evalpat false ghostenv env rhs tp tp $. fun ghostenv env t ->
+      evalpat false ghostenv env secrets rhs tp tp $. fun ghostenv env secrets t ->
       produce_points_to_chunk l h type_ coef symbn t $. fun h ->
-      cont h ghostenv env
+      cont h ghostenv env secrets
     | WPointsTo (l, WDeref(ld, e, td), tp, rhs) ->  
       let symbn = eval None env e in
-      evalpat false ghostenv env rhs tp tp $. fun ghostenv env t ->
+      evalpat false ghostenv env secrets rhs tp tp $. fun ghostenv env secrets t ->
       produce_points_to_chunk l h tp coef symbn t $. fun h ->
-      cont h ghostenv env
+      cont h ghostenv env secrets
     | WPredAsn (l, g, is_global_predref, targs, pats0, pats) ->
       let (g_symb, pats0, pats, types, auto_info) =
         if not is_global_predref then 
@@ -278,9 +278,9 @@ module Assertions(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
       in
       let targs = instantiate_types tpenv targs in
       let domain = instantiate_types tpenv types in
-      evalpats ghostenv env (pats0 @ pats) types domain (fun ghostenv env ts ->
+      evalpats ghostenv env secrets (pats0 @ pats) types domain (fun ghostenv env secrets ts ->
         let input_param_count = match g#inputParamCount with None -> None | Some c -> Some (c + (List.length pats0)) in
-        let do_assume_chunk () = produce_chunk h g_symb targs coef input_param_count ts size_first (fun h -> cont h ghostenv env) in
+        let do_assume_chunk () = produce_chunk h g_symb targs coef input_param_count ts size_first (fun h -> cont h ghostenv env secrets) in
         match
           if assuming then None else
           match auto_info with
@@ -293,22 +293,23 @@ module Assertions(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
           None -> do_assume_chunk ()
         | Some ((frac, tparams, xs1, xs2, pre, post), declared_paramtypes) ->
           let ts = List.map (fun (t, (tp0, tp)) -> prover_convert_term t tp0 tp) (zip2 ts (zip2 domain declared_paramtypes)) in
-          let produce_post env' =
+          let produce_post env' secrets' =
             let env'' = env' @ zip2 (xs1@xs2) ts in
+            let secrets'' = secrets' in (* TODO *)
             with_context PushSubcontext $. fun () ->
             with_context (Executing (h, env'', l, "Applying autolemma")) $. fun () ->
-            produce_asn_core_with_post (zip2 tparams targs) h [] env'' post real_unit size_first size_all true $. fun h_ _ _ _ ->
+            produce_asn_core_with_post (zip2 tparams targs) h [] env'' secrets'' post real_unit size_first size_all true $. fun h_ _ _ _ _ ->
             with_context PopSubcontext $. fun () ->
-            cont h_ ghostenv env
+            cont h_ ghostenv env secrets
           in
           match frac with
             None -> 
             if coef == real_unit then 
-              produce_post []
+              produce_post [] []
             else
               do_assume_chunk ()
           | Some(f) ->
-            produce_post [(f, coef)]
+            produce_post [(f, coef)] [] (* TODO secrets *)
       )
     | WInstPredAsn (l, e_opt, st, cfin, tn, g, index, pats) ->
         let (pmap, pred_symb) =
@@ -334,36 +335,36 @@ module Assertions(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         assume (ctxt#mk_not (ctxt#mk_eq target (ctxt#mk_intlit 0))) $. fun () ->
         begin fun cont -> if cfin = FinalClass then assume (ctxt#mk_eq (ctxt#mk_app get_class_symbol [target]) (List.assoc st classterms)) cont else cont () end $. fun () ->
         let types = List.map snd pmap in
-        evalpats ghostenv env pats types types $. fun ghostenv env args ->
+        evalpats ghostenv env secrets pats types types $. fun ghostenv env secrets args ->
         produce_chunk h (pred_symb, true) [] coef (Some 2) (target::index::args) size_first $. fun h ->
-        cont h ghostenv env
-    | ExprAsn (l, e) -> assume (ev e) (fun _ -> cont h ghostenv env)
+        cont h ghostenv env secrets
+    | ExprAsn (l, e) -> assume (ev e) (fun _ -> cont h ghostenv env secrets)
     | WMatchAsn (l, e, pat, tp) ->
       let v = ev e in
-      evalpat true ghostenv env pat tp tp $. fun ghostenv env v' ->
+      evalpat true ghostenv env secrets pat tp tp $. fun ghostenv env secrets v' ->
       let f = if tp = Bool then ctxt#mk_iff v v' else ctxt#mk_eq v v' in
       assume f $. fun () ->
-      cont h ghostenv env
+      cont h ghostenv env secrets
     | Sep (l, p1, p2) ->
-      produce_asn_core_with_post tpenv h ghostenv env p1 coef size_first size_all assuming $. fun h ghostenv env post ->
+      produce_asn_core_with_post tpenv h ghostenv env secrets p1 coef size_first size_all assuming $. fun h ghostenv env secrets post ->
       if post <> None then assert_false h env l "Left-hand side of separating conjunction cannot specify a postcondition." None;
-      produce_asn_core_with_post tpenv h ghostenv env p2 coef size_all size_all assuming cont_with_post
+      produce_asn_core_with_post tpenv h ghostenv env secrets p2 coef size_all size_all assuming cont_with_post
     | IfAsn (l, e, p1, p2) ->
-      let cont_with_post h ghostenv1 env1 post =
-        let ghostenv, env =
-          if post = None then ghostenv, env else ghostenv1, env1
+      let cont_with_post h ghostenv1 env1 secrets1 post =
+        let ghostenv, env, secrets =
+          if post = None then ghostenv, env, secrets else ghostenv1, env1, secrets1
         in
-        cont_with_post h ghostenv env post
+        cont_with_post h ghostenv env secrets post
       in
       branch
-        (fun _ -> assume (ev e) (fun _ -> produce_asn_core_with_post tpenv h ghostenv env p1 coef size_all size_all assuming cont_with_post))
-        (fun _ -> assume (ctxt#mk_not (ev e)) (fun _ -> produce_asn_core_with_post tpenv h ghostenv env p2 coef size_all size_all assuming cont_with_post))
+        (fun _ -> assume (ev e) (fun _ -> produce_asn_core_with_post tpenv h ghostenv env secrets p1 coef size_all size_all assuming cont_with_post))
+        (fun _ -> assume (ctxt#mk_not (ev e)) (fun _ -> produce_asn_core_with_post tpenv h ghostenv env secrets p2 coef size_all size_all assuming cont_with_post))
     | WSwitchAsn (l, e, i, cs) ->
-      let cont_with_post h ghostenv1 env1 post =
-        let ghostenv, env =
-          if post = None then ghostenv, env else ghostenv1, env1
+      let cont_with_post h ghostenv1 env1 secrets1 post =
+        let ghostenv, env, secrets =
+          if post = None then ghostenv, env, secrets else ghostenv1, env1, secrets1
         in
-        cont_with_post h ghostenv env post
+        cont_with_post h ghostenv env secrets post
       in
       let t = ev e in
       let (_, tparams, ctormap, _, _) = List.assoc i inductivemap in
@@ -391,37 +392,38 @@ module Assertions(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
                      pts
                in
                let xenv = List.map (fun (x, _, t) -> (x, t)) xts in
-               assume_eq t (mk_app cs (List.map (fun (x, t, _) -> t) xts)) (fun _ -> produce_asn_core_with_post tpenv h (pats @ ghostenv) (xenv @ env) p coef size_all size_all assuming cont_with_post))
+               (* TODO secrets *)
+               assume_eq t (mk_app cs (List.map (fun (x, t, _) -> t) xts)) (fun _ -> produce_asn_core_with_post tpenv h (pats @ ghostenv) (xenv @ env) secrets p coef size_all size_all assuming cont_with_post))
             (fun _ -> iter cs)
         | [] -> success()
       in
       iter cs
-    | EmpAsn l -> cont h ghostenv env
+    | EmpAsn l -> cont h ghostenv env secrets
     | ForallAsn (l, ManifestTypeExpr(_, tp), i, e) ->
       in_temporary_context begin fun () ->
         ctxt#begin_formal;
         let forall = (eval None ((i, ctxt#mk_bound 0 (typenode_of_provertype (provertype_of_type tp))) :: env) e) in
         ctxt#end_formal;
         ctxt#assume_forall "forall_ assertion" [] [(typenode_of_provertype (provertype_of_type tp))] forall;
-        cont h ghostenv env
+        cont h ghostenv env secrets
       end
     | CoefAsn (l, DummyPat, body) ->
-      produce_asn_core_with_post tpenv h ghostenv env body (get_dummy_frac_term ()) size_first size_all assuming cont_with_post
+      produce_asn_core_with_post tpenv h ghostenv env secrets body (get_dummy_frac_term ()) size_first size_all assuming cont_with_post
     | CoefAsn (l, coef', body) ->
-      evalpat true ghostenv env coef' RealType RealType $. fun ghostenv env coef' ->
-      produce_asn_core_with_post tpenv h ghostenv env body (real_mul l coef coef') size_first size_all assuming cont_with_post
+      evalpat true ghostenv env secrets coef' RealType RealType $. fun ghostenv env secrets coef' ->
+      produce_asn_core_with_post tpenv h ghostenv env secrets body (real_mul l coef coef') size_first size_all assuming cont_with_post
     | EnsuresAsn (l, body) ->
-      cont_with_post h ghostenv env (Some body)
+      cont_with_post h ghostenv env secrets (Some body)
     )
   
-  let rec produce_asn_core tpenv h ghostenv env p coef size_first size_all (assuming: bool) cont: symexec_result =
-    produce_asn_core_with_post tpenv h ghostenv env p coef size_first size_all (assuming: bool) (fun h env ghostenv post -> cont h env ghostenv)
+  let rec produce_asn_core tpenv h ghostenv env secrets p coef size_first size_all (assuming: bool) cont: symexec_result =
+    produce_asn_core_with_post tpenv h ghostenv env secrets p coef size_first size_all (assuming: bool) (fun h env ghostenv post -> cont h env ghostenv)
     
-  let produce_asn tpenv h ghostenv (env: (string * termnode) list) p coef size_first size_all cont =
-    produce_asn_core_with_post tpenv h ghostenv env p coef size_first size_all false (fun h env ghostenv post -> cont h env ghostenv)
+  let produce_asn tpenv h ghostenv (env: (string * termnode) list) secrets p coef size_first size_all cont =
+    produce_asn_core_with_post tpenv h ghostenv env secrets p coef size_first size_all false (fun h env secrets ghostenv post -> cont h env secrets ghostenv)
   
-  let produce_asn_with_post tpenv h ghostenv (env: (string * termnode) list) p coef size_first size_all cont =
-    produce_asn_core_with_post tpenv h ghostenv env p coef size_first size_all false cont
+  let produce_asn_with_post tpenv h ghostenv (env: (string * termnode) list) secrets p coef size_first size_all cont =
+    produce_asn_core_with_post tpenv h ghostenv env secrets p coef size_first size_all false cont
   
   (* Region: consumption of assertions *)
   
@@ -1646,7 +1648,8 @@ module Assertions(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
                         let produce_coef = if is_dummy_frac_term found_coef then get_dummy_frac_term () else found_coef in
                         with_context PushSubcontext $. fun () ->
                         with_context (Executing (h, full_env, outer_l, "Auto-opening predicate")) $. fun () ->
-                          produce_asn tpenv h ghostenv full_env outer_wbody produce_coef None None $. fun h ghostenv env ->
+                          (* TODO secrets? *)
+                          produce_asn tpenv h ghostenv full_env [] outer_wbody produce_coef None None $. fun h ghostenv env secrets ->
                             with_context PopSubcontext $. fun () ->
                             (* perform remaining opens *)
                             if is_dummy_frac_term found_coef then
@@ -1820,7 +1823,8 @@ module Assertions(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
               let tpenv = [] in
               let ghostenv = [] in
               let Some env = zip (List.map fst xs) [a; elem; v] in
-              produce_asn tpenv h ghostenv env wbody coef None None $. fun h _ _ ->
+              let secrets = [] in (* TODO *)
+              produce_asn tpenv h ghostenv env secrets wbody coef None None $. fun h _ _ _ ->
               cont (Some h)
       in
       let get_slice_upcast_rule l h [elem_tp] terms_are_well_typed coef coefpat [arr; istart; iend] cont =
