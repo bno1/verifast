@@ -112,7 +112,7 @@ ifdef Z3V4DOT5
   else ifeq ($(OS), Windows_NT)
     Z3DEPS := $(Z3DEPS) ../bin/libz3.dll
   else ifeq ($(OS), Linux)
-    Z3DEPS := $(Z3DEPS) ../bin/libz3.so
+    Z3DEPS := $(Z3DEPS)
   endif
   Z3CCOPTS = -cclib "-L $(Z3_DLL_DIR)"
   Z3ARGS_EARLY = -I $(Z3_OCAML) z3ml.cmxa z3$(Z3VERSION)prover.cmx verifastPluginZ3$(Z3VERSION).ml verifastPluginReduxZ3$(Z3VERSION).ml  verifastPluginZ3$(Z3VERSION)Smtlib.ml $(Z3CCOPTS)

@@ -64,6 +64,72 @@ module VerifyProgram(VerifyProgramArgs: VERIFY_PROGRAM_ARGS) = struct
         None -> consume_asn rules [] h [] hpInvEnv inv true real_unit (fun _ h _ _ _ -> cont h)
       | Some(ehname) -> assert_handle_invs bcn hpmap ehname hpInvEnv h (fun h ->  consume_asn rules [] h [] hpInvEnv inv true real_unit (fun _ h _ _ _ -> cont h))
   
+  let rec is_secret secrets expr =
+    let check e = is_secret secrets e
+    in
+    match expr with
+      True _ -> false
+    | False _ -> false
+    | Null _ -> false
+    | Var (_, x) -> List.mem x secrets
+    | WVar (_, x, _) -> List.mem x secrets
+    | PredNameExpr (l, g) -> static_error l "Unexpected expr" None
+    | TruncatingExpr (l, e) -> static_error l "Unexpected expr" None
+    | Operation (_, _, es) -> List.exists check es
+    | WOperation (_, _, es, _) -> List.exists check es
+    | IntLit _ -> false
+    | RealLit _ -> false
+    | ClassLit _ -> false
+    | StringLit _ -> false
+    | CastExpr (l, _, e) -> check e
+    | TypedExpr (w, _) -> check w
+    | Read (l, e, f) -> static_error l "not implemented" None
+    (*| Deref (_, Var(_, x)) -> check x (*TODO*)*)
+    | Deref (l, e) -> if check e
+      then static_error l "Cannot dereference secret expr" None
+      else check e
+    (*| AddressOf (l, Var(l2, x)) when List.mem_assoc x tenv -> []*)
+    | AddressOf (l, e) -> false
+    | ExprCallExpr (l, e, es) ->
+      if check e then static_error l "Cannot use secret as function" None
+      else static_error l "not impl" None
+    | CallExpr (l, g, targes, [], pats, fb) -> static_error l "not impl" None
+    | NewObject (l, cn, args) -> static_error l "not impl" None
+    | ReadArray(l, arr, index) ->
+      if check arr then static_error l "Cannot access secret array" None
+      else if check index then static_error l "Array index cannot be secret" None
+      else false
+    | NewArray (l, te, len) -> if check len
+      then static_error (expr_loc len) "Cannot create array with secret length" None
+      else false
+    | NewArrayWithInitializer (l, te, es) -> List.exists check es
+    | IfExpr (l, e1, e2, e3) -> if check e1
+      then static_error (expr_loc e1) "Secret expression as condition for branch" None
+      else check e2 || check e3
+    | SwitchExpr _ -> static_error (expr_loc expr) "Expression form not allowed here." None
+    | WSwitchExpr _ -> static_error (expr_loc expr) "Expression form not allowed here." None
+    | SizeofExpr _ -> false
+    | InstanceOfExpr _ -> false
+    | SuperMethodCall (l, mn, args) -> static_error l "not impl" None
+    | AssignExpr (l, e1, e2) -> begin
+        let s1 = check e1 in
+        let s2 = check e2 in
+        if not s1 && s2
+          then static_error l "Assignment of secret expr to non-secret expr" None
+          else s2
+      end
+    | AssignOpExpr (l, e1, _, e2, _) -> begin
+        let s1 = check e1 in
+        let s2 = check e2 in
+        if not s1 && s2
+          then static_error l "Assignment of secret expr to non-secret expr" None
+          else s2
+      end
+    | InitializerList (l, es) -> List.exists check es
+    | SecretAsn (l, e) -> static_error l "Expression not allowed here" None
+    | CallExpr (l, _, _, _, _, _) -> static_error l "not impl" None
+    | e -> static_error (expr_loc e) "Expression form not allowed here." None
+
   let rec verify_stmt (pn,ilist) blocks_done lblenv tparams boxes pure leminfo funcmap predinstmap sizemap tenv ghostenv h env secrets s tcont return_cont econt =
     let l = stmt_loc s in
     if not (is_transparent_stmt s) then begin !stats#stmtExec l; reportStmtExec l end;
